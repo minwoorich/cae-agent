@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from cae_agent import __version__
+from cae_agent.agents import AgentError, CodexProvider
 from cae_agent.config import (
     DEFAULT_CONFIG_NAME,
     ConfigError,
@@ -233,6 +234,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mechanical 내부 Python에서 스크립트를 실행합니다.",
     )
     mechanical_run_parser.add_argument("script_file", type=Path)
+
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="AI 제공자로 SpaceClaim 또는 Mechanical 스크립트를 생성합니다.",
+    )
+    generate_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    generate_parser.add_argument(
+        "--target",
+        required=True,
+        choices=("spaceclaim", "mechanical"),
+        help="생성할 스크립트의 CAE 실행 환경입니다.",
+    )
+    prompt_group = generate_parser.add_mutually_exclusive_group(required=True)
+    prompt_group.add_argument(
+        "--prompt",
+        help="Codex에 전달할 CAE 스크립트 요구사항입니다.",
+    )
+    prompt_group.add_argument(
+        "--prompt-file",
+        type=Path,
+        help="UTF-8 요구사항이 저장된 텍스트 파일입니다.",
+    )
     return parser
 
 
@@ -366,5 +394,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
         except (ConfigError, MechanicalError, WorkbenchError, OSError) as error:
             parser.error(str(error))
+
+    if args.command == "generate":
+        try:
+            config = load_config(args.config_file)
+            if config.agent.provider != "codex":
+                raise AgentError(
+                    "현재 구현된 AI 제공자는 codex뿐입니다."
+                )
+            request = args.prompt
+            if args.prompt_file is not None:
+                request = args.prompt_file.expanduser().resolve().read_text(
+                    encoding="utf-8"
+                )
+            result = CodexProvider().generate(
+                config,
+                target=args.target,
+                request=request,
+            )
+        except (AgentError, ConfigError, OSError) as error:
+            parser.error(str(error))
+        print(result.to_json())
+        return 0
 
     return 0

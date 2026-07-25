@@ -35,7 +35,9 @@ class AgentConfig:
     """AI 에이전트 제공자와 제한된 재시도 정책 설정."""
 
     provider: str = "codex"
+    model: str | None = None
     max_retries: int = 3
+    timeout_seconds: int = 300
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +115,16 @@ def _table(data: dict[str, Any], name: str) -> dict[str, Any]:
 def _string(table: dict[str, Any], key: str, default: str) -> str:
     """빈 문자열을 허용하지 않는 문자열 설정값을 읽는다."""
     value = table.get(key, default)
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{key} 설정은 비어 있지 않은 문자열이어야 합니다.")
+    return value.strip()
+
+
+def _optional_string(table: dict[str, Any], key: str) -> str | None:
+    """생략할 수 있지만, 작성했다면 비어 있지 않아야 하는 문자열 설정을 읽는다."""
+    value = table.get(key)
+    if value is None:
+        return None
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{key} 설정은 비어 있지 않은 문자열이어야 합니다.")
     return value.strip()
@@ -202,12 +214,20 @@ def load_config(
     )
     agent = AgentConfig(
         provider=_string(agent_table, "provider", "codex"),
+        model=_optional_string(agent_table, "model"),
         max_retries=_integer(
             agent_table,
             "max_retries",
             3,
             minimum=0,
             maximum=10,
+        ),
+        timeout_seconds=_integer(
+            agent_table,
+            "timeout_seconds",
+            300,
+            minimum=30,
+            maximum=1800,
         ),
     )
 
@@ -241,7 +261,9 @@ def render_config_text(config: AppConfig) -> str:
             f"Workbench 포트: {config.ansys.workbench_port}",
             f"Headless 실행: {config.ansys.headless}",
             f"AI 제공자: {config.agent.provider}",
+            f"AI 모델: {config.agent.model or 'Codex 기본값'}",
             f"최대 재시도: {config.agent.max_retries}",
+            f"AI 실행 제한시간: {config.agent.timeout_seconds}초",
             f"작업공간: {config.workspace.root}",
         )
     )
