@@ -64,6 +64,17 @@ Start and control a persistent Workbench bridge:
 .\.venv\Scripts\cae-agent.exe workbench stop
 ```
 
+Create a new Steady-State Thermal project inside the workspace:
+
+```powershell
+.\.venv\Scripts\cae-agent.exe workbench create-project `
+  --output .\results\power-semiconductor.wbpj
+```
+
+Existing `.wbpj` files and their companion `_files` directories are protected
+unless `--overwrite` is explicitly provided. Project output paths outside the
+configured workspace are rejected.
+
 Workbench session metadata stays inside the configured workspace. Only local
 loopback connections are accepted, and no authentication token is written to
 the session file.
