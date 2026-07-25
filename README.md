@@ -79,6 +79,18 @@ Use `--clear` only when the existing geometry should be removed before running
 the script. The original input is never modified; a uniquely named copy is
 preserved in the configured `workspace/generated` directory.
 
+Connect to Mechanical and run an internal Python script:
+
+```powershell
+.\.venv\Scripts\cae-agent.exe mechanical --system-name "SYS" connect
+.\.venv\Scripts\cae-agent.exe mechanical --system-name "SYS" status
+.\.venv\Scripts\cae-agent.exe mechanical --system-name "SYS" `
+  run-script .\mechanical_setup.py
+```
+
+Mechanical connection metadata is stored per Workbench system. Only localhost
+connections are accepted, and the original script is preserved unchanged.
+
 Run the tests:
 
 ```powershell

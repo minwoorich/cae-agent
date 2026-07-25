@@ -30,6 +30,7 @@ dev = [
   "pytest>=8.3",
 ]
 ansys = [
+  "ansys-mechanical-core>=0.13.0,<0.14",
   "ansys-workbench-core>=0.14.0,<0.15",
 ]
 

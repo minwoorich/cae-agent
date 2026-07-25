@@ -21,6 +21,13 @@ from cae_agent.config import (
     render_config_text,
 )
 from cae_agent.doctor import CheckStatus, render_json, render_text, run_checks
+from cae_agent.mechanical import (
+    MechanicalError,
+    connect_mechanical,
+    mechanical_status,
+    run_mechanical_script,
+    start_mechanical_session,
+)
 from cae_agent.spaceclaim import SpaceClaimError, run_spaceclaim_script
 from cae_agent.workbench import (
     WorkbenchError,
@@ -166,6 +173,39 @@ def build_parser() -> argparse.ArgumentParser:
         dest="clear_geometry",
         help="스크립트 실행 전에 기존 SpaceClaim 형상을 모두 제거합니다.",
     )
+
+    mechanical_parser = subparsers.add_parser(
+        "mechanical",
+        help="Workbench 시스템의 Mechanical 서버와 스크립트를 제어합니다.",
+    )
+    mechanical_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    mechanical_parser.add_argument(
+        "--system-name",
+        default="SYS",
+        help="대상 Workbench 시스템 이름입니다. 기본값: SYS",
+    )
+    mechanical_subparsers = mechanical_parser.add_subparsers(
+        dest="mechanical_command",
+        required=True,
+    )
+    mechanical_subparsers.add_parser(
+        "connect",
+        help="Workbench에서 Mechanical 서버를 시작하고 연결합니다.",
+    )
+    mechanical_subparsers.add_parser(
+        "status",
+        help="저장된 Mechanical 세션의 응답 상태를 확인합니다.",
+    )
+    mechanical_run_parser = mechanical_subparsers.add_parser(
+        "run-script",
+        help="Mechanical 내부 Python에서 스크립트를 실행합니다.",
+    )
+    mechanical_run_parser.add_argument("script_file", type=Path)
     return parser
 
 
@@ -245,5 +285,44 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(str(error))
         print(result.to_json())
         return 0
+
+    if args.command == "mechanical":
+        try:
+            config = load_config(args.config_file)
+            if args.mechanical_command == "connect":
+                session, status = start_mechanical_session(
+                    config,
+                    system_name=args.system_name,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "host": session.host,
+                            "port": session.port,
+                            "system_name": session.system_name,
+                            "status": status,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 0
+            if args.mechanical_command == "status":
+                active = connect_mechanical(
+                    config,
+                    system_name=args.system_name,
+                )
+                print(mechanical_status(active))
+                return 0
+            if args.mechanical_command == "run-script":
+                result = run_mechanical_script(
+                    config,
+                    args.script_file,
+                    system_name=args.system_name,
+                )
+                print(result.to_json())
+                return 0
+        except (ConfigError, MechanicalError, WorkbenchError, OSError) as error:
+            parser.error(str(error))
 
     return 0
