@@ -1,0 +1,14 @@
+# 이 예제는 Ansys 2026 R1의 내부 버전 번호 V261을 기준으로 검증한다.
+[ansys]
+version = "261"
+workbench_port = 50055
+headless = false
+
+# AI 기능을 사용하지 않는 수동 재현 예제이지만 기본 제공자는 명시해 둔다.
+[agent]
+provider = "codex"
+max_retries = 3
+
+# 모든 Workbench 프로젝트, 스크립트 사본과 결과를 예제 폴더 아래에 격리한다.
+[workspace]
+root = "workspace"

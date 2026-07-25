@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Power semiconductor thermal result",
+  "type": "object",
+  "required": [
+    "status",
+    "node_count",
+    "element_count",
+    "temperature_min",
+    "temperature_max",
+    "temperature_average",
+    "die_power_w",
+    "base_temperature_c",
+    "baseline_rth_k_per_w"
+  ],
+  "properties": {
+    "status": {"type": "string"},
+    "node_count": {"type": "integer", "minimum": 1},
+    "element_count": {"type": "integer", "minimum": 1},
+    "temperature_min": {"type": "string"},
+    "temperature_max": {"type": "string"},
+    "temperature_average": {"type": "string"},
+    "heat_flux_max": {"type": "string"},
+    "die_power_w": {"const": 100.0},
+    "base_temperature_c": {"const": 25.0},
+    "baseline_rth_k_per_w": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    }
+  },
+  "additionalProperties": true
+}
