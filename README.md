@@ -11,6 +11,30 @@ provider.
 
 Python 3.11 or newer is required.
 
+For the recommended Windows setup with Ansys integration:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\setup.ps1 -WithAnsys
+```
+
+The script creates or reuses the repository-local `.venv`, installs CAE Agent,
+copies `cae-agent.example.toml` only when `cae-agent.toml` is missing, and runs
+`doctor`. It never installs Python, Codex CLI, or Ansys system-wide and never
+requests credentials. Preview every planned action without changing files:
+
+```powershell
+.\setup.ps1 -WithAnsys -WithDev -WhatIf
+```
+
+If Python is missing, install Python 3.11 or newer first. If Codex is missing,
+the core and Ansys integration can still be installed, but AI generation is
+unavailable until Codex is installed and logged in. If Ansys is missing,
+`doctor` returns a failure after setup and explains the expected installation
+locations; Ansys and its license must be installed separately.
+
+Manual development setup:
+
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
