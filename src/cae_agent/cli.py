@@ -28,6 +28,7 @@ from cae_agent.mechanical import (
     run_mechanical_script,
     start_mechanical_session,
 )
+from cae_agent.project import ProjectError, create_project
 from cae_agent.spaceclaim import SpaceClaimError, run_spaceclaim_script
 from cae_agent.workbench import (
     WorkbenchError,
@@ -136,6 +137,31 @@ def build_parser() -> argparse.ArgumentParser:
     workbench_subparsers.add_parser(
         "stop",
         help="실행 중인 브리지에 정상 종료를 요청합니다.",
+    )
+    create_project_parser = workbench_subparsers.add_parser(
+        "create-project",
+        help="새 해석 시스템을 만들고 Workbench 프로젝트를 저장합니다.",
+    )
+    create_project_parser.add_argument(
+        "--template",
+        default="Steady-State Thermal",
+        dest="template_name",
+        help="Workbench 해석 템플릿 이름입니다.",
+    )
+    create_project_parser.add_argument(
+        "--solver",
+        default="ANSYS",
+        help="템플릿에 사용할 solver 이름입니다.",
+    )
+    create_project_parser.add_argument(
+        "--output",
+        type=Path,
+        help="작업공간 내부의 프로젝트 출력 경로입니다.",
+    )
+    create_project_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="기존 프로젝트와 연결 데이터가 있어도 덮어씁니다.",
     )
     run_parser = workbench_subparsers.add_parser(
         "run-script",
@@ -266,10 +292,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.workbench_command == "stop":
                 print(f"종료 요청 생성: {request_stop(config)}")
                 return 0
+            if args.workbench_command == "create-project":
+                result = create_project(
+                    config,
+                    template_name=args.template_name,
+                    solver=args.solver,
+                    output=args.output,
+                    overwrite=args.overwrite,
+                )
+                print(result.to_json())
+                return 0
             if args.workbench_command == "run-script":
                 print(run_script(config, args.script_file))
                 return 0
-        except (ConfigError, WorkbenchError, OSError) as error:
+        except (
+            ConfigError,
+            ProjectError,
+            WorkbenchError,
+            OSError,
+        ) as error:
             parser.error(str(error))
 
     if args.command == "spaceclaim" and args.spaceclaim_command == "run":
