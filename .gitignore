@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CAE Agent runtime state and Ansys-generated data
+.cae-agent/
+workspace/
+wb_client/
+wb_server/
+_ProjectScratch/
+.workbench_session*.json
+.mechanical_session*.json
+*.wbpj
+*_files/
