@@ -28,3 +28,5 @@ def test_ci_validates_installer_and_built_wheel_without_secrets() -> None:
     assert r".package-test\Scripts\cae-agent.exe --version" in source
     assert "actions/upload-artifact@v4" in source
     assert "secrets." not in source
+    assert 'PYTHONUTF8: "1"' in source
+    assert 'PYTHONIOENCODING: "utf-8"' in source
