@@ -102,6 +102,20 @@ Connect to Mechanical and run an internal Python script:
 Mechanical connection metadata is stored per Workbench system. Only localhost
 connections are accepted, and the original script is preserved unchanged.
 
+Generate a CAE script with the locally authenticated Codex CLI:
+
+```powershell
+.\.venv\Scripts\cae-agent.exe generate `
+  --target spaceclaim `
+  --prompt "가로 60 mm, 세로 40 mm, 높이 3 mm인 독립 바디를 생성해줘"
+```
+
+Codex runs non-interactively with a read-only sandbox and an ephemeral session.
+The structured response is validated before the script and metadata are saved
+under `workspace/generated`. Generated code is never executed automatically.
+If the configured default model requires a newer Codex CLI, update Codex or
+optionally set `model = "a-model-supported-by-your-cli"` in `[agent]`.
+
 Run the tests:
 
 ```powershell

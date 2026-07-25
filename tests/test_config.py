@@ -20,7 +20,9 @@ def test_default_config_uses_safe_values(tmp_path: Path) -> None:
     assert config.ansys.workbench_port == 50055
     assert config.ansys.headless is False
     assert config.agent.provider == "codex"
+    assert config.agent.model is None
     assert config.agent.max_retries == 3
+    assert config.agent.timeout_seconds == 300
     assert config.workspace.root == (tmp_path / "workspace").resolve()
     assert config.source_file is None
 
