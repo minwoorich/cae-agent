@@ -9,6 +9,7 @@ from cae_agent.config import load_config
 from cae_agent.spaceclaim import (
     SpaceClaimError,
     build_workbench_journal,
+    create_wrapper_script,
     run_spaceclaim_script,
     stage_script,
 )
@@ -39,6 +40,7 @@ def test_journal_targets_requested_system_and_optional_clear() -> None:
     journal = build_workbench_journal(
         system_name="SYS 1",
         uploaded_script_name="spaceclaim_abc.py",
+        wrapper_script_name="spaceclaim_abc.wrapper.py",
         result_file_name="spaceclaim_abc.result.txt",
         clear_geometry=True,
     )
@@ -46,7 +48,8 @@ def test_journal_targets_requested_system_and_optional_clear() -> None:
     assert "GetSystem(Name='SYS 1')" in journal
     assert 'Command="ClearAll()"' in journal
     assert "'spaceclaim_abc.py'" in journal
-    assert "traceback.format_exc()" in journal
+    assert "'spaceclaim_abc.wrapper.py'" in journal
+    assert "geometry.RunScript" in journal
     assert "Save(Overwrite=True)" in journal
     assert "finally:" in journal
     # 생성된 저널이 최소한 유효한 Python 문법인지 외부 실행 없이 확인한다.
@@ -59,11 +62,11 @@ def test_runner_uploads_and_returns_validated_result(tmp_path: Path) -> None:
     source.write_text("print('SpaceClaim only')", encoding="utf-8")
 
     class FakeWorkbench:
-        uploaded: tuple[str, bool] | None = None
+        uploaded: list[tuple[str, bool]] = []
         journal: str | None = None
 
         def upload_file(self, path: str, *, show_progress: bool) -> None:
-            self.uploaded = (path, show_progress)
+            self.uploaded.append((path, show_progress))
 
         def run_script_string(self, journal: str) -> str:
             self.journal = journal
@@ -86,10 +89,29 @@ def test_runner_uploads_and_returns_validated_result(tmp_path: Path) -> None:
 
     assert result.run_id == "fixed"
     assert result.status == "success"
-    assert workbench.uploaded is not None
-    assert workbench.uploaded[0].endswith("spaceclaim_fixed.py")
-    assert workbench.uploaded[1] is False
+    assert workbench.uploaded[0][0].endswith("spaceclaim_fixed.py")
+    assert workbench.uploaded[1][0].endswith(
+        "spaceclaim_fixed.wrapper.py"
+    )
+    assert all(not item[1] for item in workbench.uploaded)
     assert workbench.journal is not None
+
+
+def test_wrapper_executes_source_and_records_traceback(tmp_path: Path) -> None:
+    config = load_config(current_directory=tmp_path)
+    config.workspace.generated_dir.mkdir(parents=True)
+
+    wrapper = create_wrapper_script(
+        config,
+        run_id="fixed",
+        uploaded_script_name="spaceclaim_fixed.py",
+        result_file_name="spaceclaim_fixed.result.txt",
+    )
+    source = wrapper.read_text(encoding="utf-8")
+
+    assert "execfile(" in source
+    assert "traceback.format_exc()" in source
+    compile(source, str(wrapper), "exec")
 
 
 def test_invalid_workbench_result_is_rejected(tmp_path: Path) -> None:

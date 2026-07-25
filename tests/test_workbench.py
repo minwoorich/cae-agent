@@ -114,6 +114,7 @@ def test_serve_writes_and_cleans_session_metadata(tmp_path: Path) -> None:
 
     class FakeWorkbench:
         server_version = "261"
+        exited = False
 
         def run_script_string(self, _script: str) -> str:
             # 첫 ping 시 종료 요청을 만들어 대기 루프를 즉시 끝낸다. 실제 API를
@@ -121,15 +122,21 @@ def test_serve_writes_and_cleans_session_metadata(tmp_path: Path) -> None:
             paths.stop_file.touch()
             return "ok"
 
+        def exit(self) -> None:
+            self.exited = True
+
+    fake_workbench = FakeWorkbench()
+
     def launcher(**kwargs):
         launch_arguments.update(kwargs)
-        return FakeWorkbench()
+        return fake_workbench
 
     serve_session(config, launcher=launcher, poll_interval=0)
 
     assert launch_arguments["version"] == "261"
     assert launch_arguments["port"] == 50055
     assert launch_arguments["show_gui"] is True
+    assert fake_workbench.exited is True
     assert not paths.session_file.exists()
     assert not paths.stop_file.exists()
 

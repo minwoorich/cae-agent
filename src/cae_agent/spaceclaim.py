@@ -15,7 +15,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cae_agent.config import AppConfig, prepare_workspace
-from cae_agent.workbench import WorkbenchError, connect_session
+from cae_agent.workbench import (
+    WorkbenchError,
+    connect_session,
+    workbench_paths,
+)
 
 
 class SpaceClaimError(RuntimeError):
@@ -66,13 +70,14 @@ def build_workbench_journal(
     *,
     system_name: str,
     uploaded_script_name: str,
+    wrapper_script_name: str,
     result_file_name: str,
     clear_geometry: bool,
 ) -> str:
     """SpaceClaim 실행과 명시적 결과 검증을 수행할 Workbench 저널을 만든다.
 
-    Workbench의 ``SendCommand``는 일부 SpaceClaim 내부 예외를 호출자에게 그대로
-    전달하지 않는다. 따라서 SpaceClaim 명령 자체가 성공 또는 traceback을 서버
+    Workbench의 ``RunScript``는 일부 SpaceClaim 내부 예외를 호출자에게 그대로
+    전달하지 않는다. 따라서 별도 래퍼 스크립트가 성공 또는 traceback을 서버
     결과 파일에 기록하고, Workbench 저널이 그 파일을 다시 읽어 실패를 확정한다.
     """
     clear_statement = ""
@@ -93,37 +98,21 @@ geometry = system.GetContainer(ComponentName="Geometry")
 geometry.Edit(IsSpaceClaimGeometry=True, Interactive=True)
 {clear_statement}
 
-script_path = os.path.join(
+source_path = os.path.join(
     GetServerWorkingDirectory(),
     {uploaded_script_name!r}
+)
+wrapper_path = os.path.join(
+    GetServerWorkingDirectory(),
+    {wrapper_script_name!r}
 )
 result_path = os.path.join(
     GetServerWorkingDirectory(),
     {result_file_name!r}
 )
 
-with open(script_path, "r") as script_stream:
-    geometry_source = script_stream.read()
-
-indented_source = "\\n".join(
-    "    " + line for line in geometry_source.splitlines()
-)
-
-geometry_command = \"\"\"import System
 try:
-%s
-    Window.ActiveWindow.Document.Save()
-    System.IO.File.WriteAllText(%r, "SUCCESS")
-except Exception as exc:
-    import traceback
-    System.IO.File.WriteAllText(
-        %r,
-        "ERROR " + str(exc) + "\\n" + traceback.format_exc()
-    )
-\"\"\" % (indented_source, result_path, result_path)
-
-try:
-    geometry.SendCommand(Language="Python", Command=geometry_command)
+    geometry.RunScript(ScriptFile=wrapper_path)
 finally:
     # Workbench 호출 자체가 실패하더라도 편집기를 닫아 다음 자동화 명령이
     # 열린 SpaceClaim 창 때문에 교착되는 상황을 줄인다.
@@ -144,6 +133,54 @@ wb_script_result = json.dumps({{
     "message": geometry_result
 }})
 """.strip()
+
+
+def create_wrapper_script(
+    config: AppConfig,
+    *,
+    run_id: str,
+    uploaded_script_name: str,
+    result_file_name: str,
+) -> Path:
+    """원본을 ``execfile``로 실행하고 결과를 기록하는 SpaceClaim 래퍼를 만든다.
+
+    사용자 소스를 거대한 ``SendCommand`` 문자열에 삽입하면 인코딩과 명령 길이에
+    따라 V261에서 실행 결과 파일이 만들어지지 않을 수 있다. 작은 래퍼 파일에서
+    원본 파일을 직접 실행하면 원본의 줄 번호를 유지하면서 예외도 기록할 수 있다.
+    """
+    paths = workbench_paths(config)
+    source_path = (paths.server / uploaded_script_name).resolve()
+    result_path = (paths.server / result_file_name).resolve()
+    wrapper = (
+        config.workspace.generated_dir
+        / f"spaceclaim_{run_id}.wrapper.py"
+    )
+    wrapper.write_text(
+        "\n".join(
+            (
+                "# -*- coding: utf-8 -*-",
+                "import System",
+                "import traceback",
+                "try:",
+                f"    execfile({str(source_path)!r})",
+                "    Window.ActiveWindow.Document.Save()",
+                (
+                    "    System.IO.File.WriteAllText("
+                    f"{str(result_path)!r}, 'SUCCESS')"
+                ),
+                "except Exception as exc:",
+                "    System.IO.File.WriteAllText(",
+                f"        {str(result_path)!r},",
+                (
+                    "        'ERROR ' + str(exc) + '\\n' "
+                    "+ traceback.format_exc()"
+                ),
+                "    )",
+            )
+        ),
+        encoding="utf-8",
+    )
+    return wrapper
 
 
 def _parse_result(
@@ -202,15 +239,23 @@ def run_spaceclaim_script(
     run_id = create_run_id()
     staged = stage_script(config, script_file, run_id=run_id)
     result_name = f"spaceclaim_{run_id}.result.txt"
+    wrapper = create_wrapper_script(
+        config,
+        run_id=run_id,
+        uploaded_script_name=staged.name,
+        result_file_name=result_name,
+    )
 
     active_workbench = workbench or connect_session(config)
     try:
         # PyWorkbench는 서버 작업폴더에 basename으로 파일을 배치한다. UUID 기반
         # 이름을 사용하므로 동시 작업과 이전 실행 파일의 충돌을 피할 수 있다.
         active_workbench.upload_file(str(staged), show_progress=False)
+        active_workbench.upload_file(str(wrapper), show_progress=False)
         journal = build_workbench_journal(
             system_name=system_name,
             uploaded_script_name=staged.name,
+            wrapper_script_name=wrapper.name,
             result_file_name=result_name,
             clear_geometry=clear_geometry,
         )

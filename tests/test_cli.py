@@ -1,5 +1,7 @@
 """CAE Agent 최상위 명령행 인터페이스의 기본 동작을 검증한다."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from cae_agent import __version__
@@ -56,3 +58,28 @@ def test_config_show_displays_default_configuration(
     output = capsys.readouterr().out
     assert '"version": "261"' in output
     assert '"provider": "codex"' in output
+
+
+def test_mechanical_connect_prints_json_result(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """실제 서버 연결 후 결과 JSON 출력 경로의 import 누락을 방지한다."""
+    monkeypatch.setattr(
+        "cae_agent.cli.load_config",
+        lambda _file: object(),
+    )
+    monkeypatch.setattr(
+        "cae_agent.cli.start_mechanical_session",
+        lambda _config, *, system_name: (
+            SimpleNamespace(
+                host="127.0.0.1",
+                port=7660,
+                system_name=system_name,
+            ),
+            '{"status": "ok"}',
+        ),
+    )
+
+    assert main(["mechanical", "connect"]) == 0
+    assert '"port": 7660' in capsys.readouterr().out
