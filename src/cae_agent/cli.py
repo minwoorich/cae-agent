@@ -31,6 +31,7 @@ from cae_agent.mechanical import (
     start_mechanical_session,
 )
 from cae_agent.project import ProjectError, create_project
+from cae_agent.repair import RepairError, run_repair_loop
 from cae_agent.spaceclaim import SpaceClaimError, run_spaceclaim_script
 from cae_agent.workbench import (
     WorkbenchError,
@@ -261,6 +262,55 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="UTF-8 요구사항이 저장된 텍스트 파일입니다.",
     )
+
+    run_agent_parser = subparsers.add_parser(
+        "run-agent",
+        help="AI 스크립트를 실행하고 실패 시 제한적으로 수정합니다.",
+        description=(
+            "이미 준비된 Workbench 또는 Mechanical 세션에서 AI 생성 코드를 "
+            "실행합니다. 명시적 실행 승인 없이는 Ansys에 코드를 전달하지 않습니다."
+        ),
+    )
+    run_agent_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    run_agent_parser.add_argument(
+        "--target",
+        required=True,
+        choices=("spaceclaim", "mechanical"),
+        help="생성·실행·수정할 CAE 실행 환경입니다.",
+    )
+    run_agent_parser.add_argument(
+        "--system-name",
+        default="SYS",
+        help="이미 준비된 Workbench 시스템 이름입니다. 기본값: SYS",
+    )
+    run_agent_parser.add_argument(
+        "--approve-execution",
+        action="store_true",
+        help="AI 생성 코드를 Ansys 내부에서 실행하는 데 명시적으로 동의합니다.",
+    )
+    run_agent_parser.add_argument(
+        "--clear",
+        action="store_true",
+        dest="clear_geometry",
+        help="SpaceClaim의 각 실행 전에 기존 형상을 모두 제거합니다.",
+    )
+    run_prompt_group = run_agent_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    run_prompt_group.add_argument(
+        "--prompt",
+        help="Codex에 전달할 CAE 자동화 요구사항입니다.",
+    )
+    run_prompt_group.add_argument(
+        "--prompt-file",
+        type=Path,
+        help="UTF-8 요구사항이 저장된 텍스트 파일입니다.",
+    )
     return parser
 
 
@@ -416,5 +466,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(str(error))
         print(result.to_json())
         return 0
+
+    if args.command == "run-agent":
+        try:
+            config = load_config(args.config_file)
+            if config.agent.provider != "codex":
+                raise AgentError("현재 구현된 AI 제공자는 codex뿐입니다.")
+            request = args.prompt
+            if args.prompt_file is not None:
+                request = args.prompt_file.expanduser().resolve().read_text(
+                    encoding="utf-8"
+                )
+            result = run_repair_loop(
+                config,
+                target=args.target,
+                request=request,
+                system_name=args.system_name,
+                approve_execution=args.approve_execution,
+                clear_geometry=args.clear_geometry,
+            )
+        except (AgentError, ConfigError, RepairError, OSError) as error:
+            parser.error(str(error))
+        print(result.to_json())
+        return 0 if result.success else 1
 
     return 0

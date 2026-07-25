@@ -116,6 +116,22 @@ under `workspace/generated`. Generated code is never executed automatically.
 If the configured default model requires a newer Codex CLI, update Codex or
 optionally set `model = "a-model-supported-by-your-cli"` in `[agent]`.
 
+Generate, execute, and repair a script in an already prepared Ansys session:
+
+```powershell
+.\.venv\Scripts\cae-agent.exe run-agent `
+  --target mechanical `
+  --system-name SYS `
+  --prompt "최대 온도 결과를 추가하고 해석해줘" `
+  --approve-execution
+```
+
+`run-agent` refuses to execute generated code unless `--approve-execution` is
+present. On failure it preserves the script and error, asks Codex for a
+targeted correction, and retries no more than `[agent].max_retries`. Review
+the JSON history under `workspace/logs`; the command expects the Workbench and
+Mechanical sessions to have been prepared separately.
+
 Run the tests:
 
 ```powershell

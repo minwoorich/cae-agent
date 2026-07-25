@@ -83,3 +83,37 @@ def test_mechanical_connect_prints_json_result(
 
     assert main(["mechanical", "connect"]) == 0
     assert '"port": 7660' in capsys.readouterr().out
+
+
+def test_run_agent_passes_execution_approval(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CLI가 실행 승인 값을 오케스트레이터에 빠짐없이 전달하는지 확인한다."""
+    received: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+
+    def fake_loop(_config, **kwargs):
+        received.update(kwargs)
+        return SimpleNamespace(
+            success=True,
+            to_json=lambda: '{"success": true}',
+        )
+
+    monkeypatch.setattr("cae_agent.cli.run_repair_loop", fake_loop)
+    assert (
+        main(
+            [
+                "run-agent",
+                "--target",
+                "mechanical",
+                "--prompt",
+                "온도 결과 추가",
+                "--approve-execution",
+            ]
+        )
+        == 0
+    )
+    assert received["approve_execution"] is True
+    assert '"success": true' in capsys.readouterr().out
