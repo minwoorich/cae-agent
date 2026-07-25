@@ -14,6 +14,8 @@ provider.
 - [한국어 시작 가이드](docs/getting-started.ko.md)
 - [한국어 문제 해결 가이드](docs/troubleshooting.ko.md)
 - [전력반도체 열해석 공식 예제](examples/power-semiconductor-thermal/README.md)
+- [변경 이력](CHANGELOG.md)
+- [v0.1.0 릴리스 노트 초안](docs/releases/v0.1.0.ko.md)
 - [OpenAI 공식 Codex CLI 문서](https://developers.openai.com/codex/cli)
 
 ## Development setup
@@ -173,8 +175,10 @@ Run the tests:
 
 ## Project status
 
-The v0.1.0 roadmap is tracked in
-[GitHub issue #1](https://github.com/minwoorich/cae-agent/issues/1).
+Version 0.1.0 is the first public alpha release candidate. Release scope and
+remaining publication work are tracked in
+[GitHub issue #1](https://github.com/minwoorich/cae-agent/issues/1) and
+[release issue #30](https://github.com/minwoorich/cae-agent/issues/30).
 
 ## Development conventions
 

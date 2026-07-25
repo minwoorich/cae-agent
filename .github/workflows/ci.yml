@@ -109,7 +109,10 @@ jobs:
             throw "설치할 wheel 파일을 찾지 못했습니다."
           }
           & .\.package-test\Scripts\python.exe -m pip install $wheel.FullName
-          & .\.package-test\Scripts\cae-agent.exe --version
+          $reportedVersion = & .\.package-test\Scripts\cae-agent.exe --version
+          if ($reportedVersion -ne "cae-agent 0.1.0") {
+            throw "설치된 CLI 버전이 릴리스 대상 0.1.0과 다릅니다: $reportedVersion"
+          }
           & .\.package-test\Scripts\cae-agent.exe --help
 
       - name: 배포 산출물 업로드
