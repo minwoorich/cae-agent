@@ -225,5 +225,11 @@ def serve_session(
         while running["value"] and not paths.stop_file.exists():
             time.sleep(poll_interval)
     finally:
-        paths.session_file.unlink(missing_ok=True)
-        paths.stop_file.unlink(missing_ok=True)
+        try:
+            # atexit 훅에만 의존하면 세션 파일은 사라졌지만 Workbench 하위
+            # 프로세스가 잠시 남는 상태가 발생할 수 있다. 명시적 종료가 완료된
+            # 뒤 메타데이터를 제거하여 stop 호출자가 종료 시점을 신뢰하게 한다.
+            workbench.exit()
+        finally:
+            paths.session_file.unlink(missing_ok=True)
+            paths.stop_file.unlink(missing_ok=True)

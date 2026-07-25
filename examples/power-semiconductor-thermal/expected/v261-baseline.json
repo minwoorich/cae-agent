@@ -1,0 +1,19 @@
+{
+  "ansys_version": "2026 R1 / V261",
+  "validation_date": "2026-07-25",
+  "solver_status": "Done",
+  "node_count": 71837,
+  "element_count": 11936,
+  "temperature_min_c": 25.0,
+  "temperature_average_c": 25.656152253062192,
+  "temperature_max_c": 37.25888442993164,
+  "heat_flux_max_w_per_mm2": 1.7673827465410512,
+  "die_power_w": 100.0,
+  "base_temperature_c": 25.0,
+  "baseline_rth_k_per_w": 0.12258884429931641,
+  "acceptance": {
+    "temperature_max_relative_tolerance": 0.02,
+    "baseline_rth_relative_tolerance": 0.02,
+    "mesh_counts_are_informational": true
+  }
+}

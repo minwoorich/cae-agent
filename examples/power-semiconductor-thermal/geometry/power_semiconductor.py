@@ -43,7 +43,9 @@ def create_centered_layer(length, width, bottom, thickness, name):
         None,
     )
     body = result.CreatedBodies[0]
-    body.SetName(name)
+    # V261의 BlockBody.Create가 반환하는 DesignBody는 SetName 메서드를
+    # 제공하지 않으므로 Name 속성에 직접 할당한다.
+    body.Name = name
     return body
 
 
