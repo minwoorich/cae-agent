@@ -46,10 +46,21 @@ def build_prompt(*, target: str, request: str, ansys_version: str) -> str:
         if target == "spaceclaim"
         else "Ansys Mechanical 내부 Python API"
     )
+    compatibility = ""
+    if target == "spaceclaim":
+        compatibility = """
+V261에서 실제 검증한 SpaceClaim API 규칙:
+- 길이는 Units.Millimeter 속성이 아니라 MM(값) 헬퍼로 변환하세요.
+- 직육면체는 result = BlockBody.Create(Point.Create(...), Point.Create(...),
+  ExtrudeType.ForceAdd) 패턴으로 만들고 body = result.CreatedBodies[0]으로
+  생성 바디를 가져오세요.
+- DesignBody 이름은 SetName()이 아니라 body.Name = "이름"으로 지정하세요.
+"""
     return f"""다음 요구사항을 만족하는 CAE Python 스크립트를 작성하세요.
 
 대상: {environment}
 Ansys 내부 버전: V{ansys_version}
+{compatibility}
 사용자 요구사항:
 {request}
 

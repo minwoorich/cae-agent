@@ -23,6 +23,9 @@ def test_prompt_contains_target_version_and_safety_constraints() -> None:
     assert "V261" in prompt
     assert "절대경로" in prompt
     assert "Markdown 코드 펜스 없이" in prompt
+    assert "ExtrudeType.ForceAdd" in prompt
+    assert "result.CreatedBodies[0]" in prompt
+    assert 'body.Name = "이름"' in prompt
 
 
 def test_codex_runs_read_only_and_saves_validated_script(
