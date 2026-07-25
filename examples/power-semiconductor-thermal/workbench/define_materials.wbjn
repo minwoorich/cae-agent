@@ -1,0 +1,76 @@
+import json
+
+# 공식 예제에서 create-project가 처음 생성한 기본 시스템 이름은 SYS이다.
+# 다른 시스템 이름을 사용하는 경우 이 값과 이후 CLI의 --system-name을 함께 바꾼다.
+thermal_system = GetSystem(Name="SYS")
+engineering_data = thermal_system.GetContainer(
+    ComponentName="Engineering Data"
+)
+
+MATERIALS = [
+    {
+        "name": "Cu_Pure_Thermal",
+        "conductivity": "400 [W m^-1 C^-1]",
+        "density": "8960 [kg m^-3]"
+    },
+    {
+        "name": "Solder_SAC305_Thermal",
+        "conductivity": "58 [W m^-1 C^-1]",
+        "density": "7400 [kg m^-3]"
+    },
+    {
+        "name": "AlN_Ceramic_Thermal",
+        "conductivity": "170 [W m^-1 C^-1]",
+        "density": "3260 [kg m^-3]"
+    },
+    {
+        "name": "SiC_4H_Thermal",
+        "conductivity": "370 [W m^-1 C^-1]",
+        "density": "3210 [kg m^-3]"
+    }
+]
+
+
+def get_or_create_material(name):
+    """같은 이름의 재료가 있으면 재사용하고 없을 때만 새로 만든다."""
+    try:
+        return engineering_data.GetMaterial(Name=name)
+    except:
+        return engineering_data.CreateMaterial(Name=name)
+
+
+def get_or_create_property(material, name, behavior=None):
+    """반복 실행해도 같은 물성 항목을 중복 생성하지 않도록 한다."""
+    try:
+        return material.GetProperty(Name=name)
+    except:
+        if behavior is None:
+            return material.CreateProperty(Name=name)
+        return material.CreateProperty(Name=name, Behavior=behavior)
+
+
+for specification in MATERIALS:
+    material = get_or_create_material(specification["name"])
+    conductivity = get_or_create_property(
+        material,
+        "Thermal Conductivity",
+        "Isotropic"
+    )
+    conductivity.SetData(
+        SheetName="Thermal Conductivity",
+        SheetQualifiers={"Definition": "", "Behavior": "Isotropic"},
+        Variables=["Temperature", "Thermal Conductivity"],
+        Values=[["22 [C]"], [specification["conductivity"]]]
+    )
+    density = get_or_create_property(material, "Density")
+    density.SetData(
+        SheetName="Density",
+        Variables=["Density"],
+        Values=[[specification["density"]]]
+    )
+
+Save(Overwrite=True)
+wb_script_result = json.dumps({
+    "status": "materials_defined",
+    "materials": [item["name"] for item in MATERIALS]
+})
