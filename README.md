@@ -9,6 +9,13 @@ The project is in its initial development stage. The first supported platform
 will be Windows with Ansys 2026 R1, using Codex CLI as the first AI agent
 provider.
 
+## Documentation
+
+- [한국어 시작 가이드](docs/getting-started.ko.md)
+- [한국어 문제 해결 가이드](docs/troubleshooting.ko.md)
+- [전력반도체 열해석 공식 예제](examples/power-semiconductor-thermal/README.md)
+- [OpenAI 공식 Codex CLI 문서](https://developers.openai.com/codex/cli)
+
 ## Development setup
 
 Python 3.11 or newer is required.
