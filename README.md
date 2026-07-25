@@ -68,6 +68,17 @@ Workbench session metadata stays inside the configured workspace. Only local
 loopback connections are accepted, and no authentication token is written to
 the session file.
 
+Run a SpaceClaim Python script in an existing Workbench system:
+
+```powershell
+.\.venv\Scripts\cae-agent.exe spaceclaim run .\geometry.py `
+  --system-name "SYS"
+```
+
+Use `--clear` only when the existing geometry should be removed before running
+the script. The original input is never modified; a uniquely named copy is
+preserved in the configured `workspace/generated` directory.
+
 Run the tests:
 
 ```powershell

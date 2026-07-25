@@ -21,6 +21,7 @@ from cae_agent.config import (
     render_config_text,
 )
 from cae_agent.doctor import CheckStatus, render_json, render_text, run_checks
+from cae_agent.spaceclaim import SpaceClaimError, run_spaceclaim_script
 from cae_agent.workbench import (
     WorkbenchError,
     connect_session,
@@ -134,6 +135,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="현재 세션에서 Workbench 저널 파일을 실행합니다.",
     )
     run_parser.add_argument("script_file", type=Path)
+
+    spaceclaim_parser = subparsers.add_parser(
+        "spaceclaim",
+        help="Workbench Geometry 셀에서 SpaceClaim 스크립트를 실행합니다.",
+    )
+    spaceclaim_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    spaceclaim_subparsers = spaceclaim_parser.add_subparsers(
+        dest="spaceclaim_command",
+        required=True,
+    )
+    spaceclaim_run_parser = spaceclaim_subparsers.add_parser(
+        "run",
+        help="Python 스크립트를 지정한 Geometry 셀에서 실행합니다.",
+    )
+    spaceclaim_run_parser.add_argument("script_file", type=Path)
+    spaceclaim_run_parser.add_argument(
+        "--system-name",
+        default="SYS",
+        help="대상 Workbench 시스템 이름입니다. 기본값: SYS",
+    )
+    spaceclaim_run_parser.add_argument(
+        "--clear",
+        action="store_true",
+        dest="clear_geometry",
+        help="스크립트 실행 전에 기존 SpaceClaim 형상을 모두 제거합니다.",
+    )
     return parser
 
 
@@ -199,5 +231,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
         except (ConfigError, WorkbenchError, OSError) as error:
             parser.error(str(error))
+
+    if args.command == "spaceclaim" and args.spaceclaim_command == "run":
+        try:
+            config = load_config(args.config_file)
+            result = run_spaceclaim_script(
+                config,
+                args.script_file,
+                system_name=args.system_name,
+                clear_geometry=args.clear_geometry,
+            )
+        except (ConfigError, WorkbenchError, SpaceClaimError, OSError) as error:
+            parser.error(str(error))
+        print(result.to_json())
+        return 0
 
     return 0
