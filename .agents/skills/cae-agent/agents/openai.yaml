@@ -1,0 +1,4 @@
+interface:
+  display_name: "CAE Agent"
+  short_description: "Codex로 Ansys CAE 작업을 안전하게 실행"
+  default_prompt: "Use $cae-agent to turn my natural-language CAE request into a safe, verified Ansys workflow."
