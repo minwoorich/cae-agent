@@ -24,6 +24,17 @@ Run the CLI:
 .\.venv\Scripts\cae-agent.exe --version
 ```
 
+Diagnose the local environment:
+
+```powershell
+.\.venv\Scripts\cae-agent.exe doctor
+.\.venv\Scripts\cae-agent.exe doctor --json
+```
+
+`doctor` checks the supported operating system, Python, virtual environment,
+Git, GitHub CLI, Codex CLI, Ansys installation paths, and workspace write
+access. It does not launch Ansys or request an Ansys license.
+
 Run the tests:
 
 ```powershell
