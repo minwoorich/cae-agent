@@ -2,9 +2,6 @@
 
 from pathlib import Path
 
-import yaml
-
-
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "AGENTS.md"
 SKILL_ROOT = ROOT / ".agents" / "skills" / "cae-agent"
@@ -57,13 +54,18 @@ def test_skill_distinguishes_top_level_codex_from_nested_adapter() -> None:
 
 
 def test_skill_ui_metadata_is_valid_and_mentions_explicit_skill() -> None:
-    """Skill UI 메타데이터가 읽을 수 있고 기본 프롬프트가 Skill을 지칭해야 한다."""
-    metadata = yaml.safe_load(OPENAI_YAML.read_text(encoding="utf-8"))
-    interface = metadata["interface"]
+    """Skill UI 메타데이터가 필수 값과 명시적 Skill 이름을 포함해야 한다."""
+    # openai.yaml은 현재 문자열 필드만 사용하는 작은 고정 파일이다. 이 검사를
+    # 위해 PyYAML 같은 런타임 외부 의존성을 추가하면 기본 패키지가 가벼워야
+    # 한다는 프로젝트 원칙과 어긋나므로, 필요한 계약을 UTF-8 원문에서 직접
+    # 확인한다. 전체 YAML 구조 검증은 skill-creator의 quick_validate.py가
+    # 별도로 담당한다.
+    source = OPENAI_YAML.read_text(encoding="utf-8")
 
-    assert interface["display_name"] == "CAE Agent"
-    assert "Ansys" in interface["short_description"]
-    assert "$cae-agent" in interface["default_prompt"]
+    assert source.startswith("interface:\n")
+    assert 'display_name: "CAE Agent"' in source
+    assert 'short_description: "Codex로 Ansys CAE 작업을 안전하게 실행"' in source
+    assert "$cae-agent" in source
 
 
 def test_readme_prioritizes_codex_first_guide() -> None:
