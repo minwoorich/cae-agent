@@ -29,6 +29,9 @@ dependencies = []
 dev = [
   "pytest>=8.3",
 ]
+ansys = [
+  "ansys-workbench-core>=0.14.0,<0.15",
+]
 
 [project.scripts]
 cae-agent = "cae_agent.cli:main"

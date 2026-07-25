@@ -46,6 +46,28 @@ Copy-Item .\cae-agent.example.toml .\cae-agent.toml
 Relative workspace paths are resolved from the configuration file directory.
 Credentials and API tokens must not be stored in this TOML file.
 
+Install the optional PyWorkbench integration:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[ansys]"
+```
+
+Start and control a persistent Workbench bridge:
+
+```powershell
+# Keep this terminal open while the Workbench session is in use.
+.\.venv\Scripts\cae-agent.exe workbench start
+
+# Run these commands from another terminal.
+.\.venv\Scripts\cae-agent.exe workbench status
+.\.venv\Scripts\cae-agent.exe workbench run-script .\example.wbjn
+.\.venv\Scripts\cae-agent.exe workbench stop
+```
+
+Workbench session metadata stays inside the configured workspace. Only local
+loopback connections are accepted, and no authentication token is written to
+the session file.
+
 Run the tests:
 
 ```powershell

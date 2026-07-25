@@ -21,6 +21,16 @@ from cae_agent.config import (
     render_config_text,
 )
 from cae_agent.doctor import CheckStatus, render_json, render_text, run_checks
+from cae_agent.workbench import (
+    WorkbenchError,
+    connect_session,
+    load_session,
+    ping_session,
+    request_stop,
+    run_script,
+    serve_session,
+    workbench_paths,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +102,38 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="출력 전에 정의된 작업공간 폴더를 생성합니다.",
     )
+
+    workbench_parser = subparsers.add_parser(
+        "workbench",
+        help="로컬 Ansys Workbench 세션을 실행하고 제어합니다.",
+    )
+    workbench_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    workbench_subparsers = workbench_parser.add_subparsers(
+        dest="workbench_command",
+        required=True,
+    )
+    workbench_subparsers.add_parser(
+        "start",
+        help="Workbench 세션을 시작하고 현재 터미널에서 유지합니다.",
+    )
+    workbench_subparsers.add_parser(
+        "status",
+        help="저장된 세션에 연결해 응답 상태를 확인합니다.",
+    )
+    workbench_subparsers.add_parser(
+        "stop",
+        help="실행 중인 브리지에 정상 종료를 요청합니다.",
+    )
+    run_parser = workbench_subparsers.add_parser(
+        "run-script",
+        help="현재 세션에서 Workbench 저널 파일을 실행합니다.",
+    )
+    run_parser.add_argument("script_file", type=Path)
     return parser
 
 
@@ -133,5 +175,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             else render_config_text(config)
         )
         return 0
+
+    if args.command == "workbench":
+        try:
+            config = load_config(args.config_file)
+            if args.workbench_command == "start":
+                serve_session(config)
+                return 0
+            if args.workbench_command == "status":
+                # 먼저 세션 파일 자체를 검증하면 손상된 메타데이터와 실제 연결
+                # 실패를 사용자가 구분할 수 있다.
+                session = load_session(workbench_paths(config).session_file)
+                result = ping_session(connect_session(config))
+                print(
+                    f"Workbench {session.server_version} 응답: {result}"
+                )
+                return 0
+            if args.workbench_command == "stop":
+                print(f"종료 요청 생성: {request_stop(config)}")
+                return 0
+            if args.workbench_command == "run-script":
+                print(run_script(config, args.script_file))
+                return 0
+        except (ConfigError, WorkbenchError, OSError) as error:
+            parser.error(str(error))
 
     return 0
