@@ -220,6 +220,9 @@ __marimo__/
 # CAE Agent runtime state and Ansys-generated data
 .cae-agent/
 workspace/
+# 통합 검증처럼 이름을 확장한 작업공간도 대형 Ansys 산출물과 로컬 실행 로그를
+# 포함하므로 실수로 커밋되지 않도록 기본 작업공간과 같은 방식으로 제외한다.
+workspace-*/
 wb_client/
 wb_server/
 _ProjectScratch/

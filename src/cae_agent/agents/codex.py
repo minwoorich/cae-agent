@@ -46,10 +46,21 @@ def build_prompt(*, target: str, request: str, ansys_version: str) -> str:
         if target == "spaceclaim"
         else "Ansys Mechanical 내부 Python API"
     )
+    compatibility = ""
+    if target == "spaceclaim":
+        compatibility = """
+V261에서 실제 검증한 SpaceClaim API 규칙:
+- 길이는 Units.Millimeter 속성이 아니라 MM(값) 헬퍼로 변환하세요.
+- 직육면체는 result = BlockBody.Create(Point.Create(...), Point.Create(...),
+  ExtrudeType.ForceAdd) 패턴으로 만들고 body = result.CreatedBodies[0]으로
+  생성 바디를 가져오세요.
+- DesignBody 이름은 SetName()이 아니라 body.Name = "이름"으로 지정하세요.
+"""
     return f"""다음 요구사항을 만족하는 CAE Python 스크립트를 작성하세요.
 
 대상: {environment}
 Ansys 내부 버전: V{ansys_version}
+{compatibility}
 사용자 요구사항:
 {request}
 
@@ -91,6 +102,14 @@ def _validate_payload(payload: Any, *, target: str) -> dict[str, Any]:
             f"Codex가 생성한 Python 문법이 올바르지 않습니다: {error}"
         ) from error
     return payload
+
+
+def _ensure_utf8_cookie(script: str) -> str:
+    """Ansys의 Python 2 계열 파서가 한국어 주석을 읽도록 인코딩 선언을 보장한다."""
+    first_two_lines = script.splitlines()[:2]
+    if any("coding" in line for line in first_two_lines):
+        return script
+    return "# -*- coding: utf-8 -*-\n" + script
 
 
 class CodexProvider:
@@ -203,6 +222,7 @@ class CodexProvider:
         except (OSError, json.JSONDecodeError) as error:
             raise AgentError("Codex 최종 응답이 올바른 JSON이 아닙니다.") from error
         validated = _validate_payload(payload, target=normalized_target)
+        validated["script"] = _ensure_utf8_cookie(validated["script"])
 
         script_file = (
             config.workspace.generated_dir
