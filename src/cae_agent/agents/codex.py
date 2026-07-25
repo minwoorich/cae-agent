@@ -93,6 +93,14 @@ def _validate_payload(payload: Any, *, target: str) -> dict[str, Any]:
     return payload
 
 
+def _ensure_utf8_cookie(script: str) -> str:
+    """Ansys의 Python 2 계열 파서가 한국어 주석을 읽도록 인코딩 선언을 보장한다."""
+    first_two_lines = script.splitlines()[:2]
+    if any("coding" in line for line in first_two_lines):
+        return script
+    return "# -*- coding: utf-8 -*-\n" + script
+
+
 class CodexProvider:
     """설치된 Codex CLI 인증을 재사용하는 read-only 스크립트 생성 제공자."""
 
@@ -203,6 +211,7 @@ class CodexProvider:
         except (OSError, json.JSONDecodeError) as error:
             raise AgentError("Codex 최종 응답이 올바른 JSON이 아닙니다.") from error
         validated = _validate_payload(payload, target=normalized_target)
+        validated["script"] = _ensure_utf8_cookie(validated["script"])
 
         script_file = (
             config.workspace.generated_dir

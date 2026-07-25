@@ -72,7 +72,7 @@ def test_codex_runs_read_only_and_saves_validated_script(
     assert received["timeout"] == 300
     assert result.run_id == "fixed"
     assert Path(result.script_file).read_text(encoding="utf-8").startswith(
-        "# 상세한 한국어 주석"
+        "# -*- coding: utf-8 -*-\n# 상세한 한국어 주석"
     )
     metadata = json.loads(
         Path(result.metadata_file).read_text(encoding="utf-8")

@@ -121,14 +121,15 @@ finally:
 with open(result_path, "r") as result_stream:
     geometry_result = result_stream.read()
 
-if not geometry_result.startswith("SUCCESS"):
-    raise Exception(
-        "SpaceClaim script execution failed:\\n" + geometry_result
-    )
-
-Save(Overwrite=True)
+geometry_status = (
+    "success" if geometry_result.startswith("SUCCESS") else "failed"
+)
+if geometry_status == "success":
+    Save(Overwrite=True)
 wb_script_result = json.dumps({{
-    "status": "success",
+    # 내부 traceback을 다시 예외로 던지면 일부 PyWorkbench 버전이 반환값 대신
+    # None만 전달한다. 실패 상태와 원문을 JSON으로 반환해 호출자가 보존한다.
+    "status": geometry_status,
     "system_name": system.Name,
     "message": geometry_result
 }})
