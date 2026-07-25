@@ -1,5 +1,7 @@
 # CAE Agent
 
+[![Windows CI](https://github.com/minwoorich/cae-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/minwoorich/cae-agent/actions/workflows/ci.yml)
+
 CAE Agent is an open-source command-line tool for AI-assisted automation of
 Ansys SpaceClaim and Mechanical.
 

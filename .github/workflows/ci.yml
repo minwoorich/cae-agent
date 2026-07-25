@@ -1,0 +1,114 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# 포크의 PR 코드가 실행되더라도 저장소 내용을 읽는 최소 권한만 부여한다.
+# 이 워크플로는 토큰, 라이선스 정보나 별도의 GitHub secret을 사용하지 않는다.
+permissions:
+  contents: read
+
+# 같은 PR에 새 커밋이 들어오면 오래된 실행을 취소해 Windows runner와 대기 시간을
+# 낭비하지 않는다. main 실행은 commit SHA가 달라 서로 취소되지 않는다.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python ${{ matrix.python-version }} 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # Ansys와 Codex는 GitHub-hosted runner에 설치하지 않는다. 외부 제품과
+      # 라이선스가 없는 상태에서도 기본 패키지와 테스트가 동작해야 하기 때문이다.
+      - name: 개발 의존성과 CAE Agent 설치
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: 전체 단위 테스트 실행
+        run: python -m pytest
+
+      # setup.ps1의 WhatIf 경로는 가상환경, 설정과 패키지를 실제로 변경하지
+      # 않으면서 Windows PowerShell 파싱과 extra 조합을 함께 검증한다.
+      - name: Windows 설치 스크립트 dry-run
+        shell: pwsh
+        run: |
+          $python = python -c "import sys; print(sys.executable)"
+          .\setup.ps1 `
+            -WhatIf `
+            -PythonExecutable $python `
+            -VirtualEnvironment ".ci-setup-preview" `
+            -WithAnsys `
+            -WithDev
+          if (Test-Path -LiteralPath ".ci-setup-preview") {
+            throw "WhatIf 실행이 가상환경 폴더를 생성했습니다."
+          }
+
+  package:
+    name: 배포 패키지 검증
+    runs-on: windows-latest
+    timeout-minutes: 15
+    needs:
+      - test
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 패키징 기준 Python 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: wheel과 source distribution 빌드
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      # 현재 소스의 editable 설치가 아니라 방금 만든 wheel을 빈 가상환경에
+      # 설치해야 누락된 패키지 파일과 console script 문제를 발견할 수 있다.
+      - name: 깨끗한 환경에서 wheel 설치 및 CLI 확인
+        shell: pwsh
+        run: |
+          python -m venv .package-test
+          $wheel = Get-ChildItem -LiteralPath dist -Filter "*.whl" |
+            Select-Object -First 1
+          if (-not $wheel) {
+            throw "설치할 wheel 파일을 찾지 못했습니다."
+          }
+          & .\.package-test\Scripts\python.exe -m pip install $wheel.FullName
+          & .\.package-test\Scripts\cae-agent.exe --version
+          & .\.package-test\Scripts\cae-agent.exe --help
+
+      - name: 배포 산출물 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: cae-agent-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
