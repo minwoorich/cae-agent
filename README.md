@@ -11,12 +11,29 @@ provider.
 
 ## Documentation
 
+- [Codex 자연어 인터페이스 가이드](docs/codex-first.ko.md)
 - [한국어 시작 가이드](docs/getting-started.ko.md)
 - [한국어 문제 해결 가이드](docs/troubleshooting.ko.md)
 - [전력반도체 열해석 공식 예제](examples/power-semiconductor-thermal/README.md)
 - [변경 이력](CHANGELOG.md)
 - [v0.1.0 릴리스 노트 초안](docs/releases/v0.1.0.ko.md)
 - [OpenAI 공식 Codex CLI 문서](https://developers.openai.com/codex/cli)
+
+## Codex-first quick start
+
+CAE Agent is designed so that Codex can be the user interface and the CLI can
+remain an internal execution tool. Open the cloned repository in Codex and
+start with a natural-language request:
+
+> 이 저장소의 CAE Agent를 처음 사용하는 사용자처럼 준비해줘. 기존 파일은
+> 덮어쓰지 말고 설치 계획을 먼저 설명해줘. 준비가 끝나면 doctor를 실행하고
+> Python, Codex와 Ansys 상태를 한국어로 요약해줘.
+
+The repository-local `AGENTS.md` and CAE Agent Skill teach Codex how to select
+commands, preserve user data, and request approval before risky Ansys changes.
+See the [Codex-first Korean guide](docs/codex-first.ko.md) for complete
+conversation examples. Direct PowerShell commands below remain available for
+manual operation and debugging.
 
 ## Development setup
 
