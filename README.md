@@ -35,6 +35,17 @@ Diagnose the local environment:
 Git, GitHub CLI, Codex CLI, Ansys installation paths, and workspace write
 access. It does not launch Ansys or request an Ansys license.
 
+Inspect the validated configuration and prepare its workspace:
+
+```powershell
+Copy-Item .\cae-agent.example.toml .\cae-agent.toml
+.\.venv\Scripts\cae-agent.exe config show
+.\.venv\Scripts\cae-agent.exe config show --json --prepare
+```
+
+Relative workspace paths are resolved from the configuration file directory.
+Credentials and API tokens must not be stored in this TOML file.
+
 Run the tests:
 
 ```powershell

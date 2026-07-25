@@ -41,3 +41,18 @@ def test_doctor_command_returns_failure_for_failed_check(
 
     assert main(["doctor"]) == 1
     assert "[FAIL] Ansys 없음" in capsys.readouterr().out
+
+
+def test_config_show_displays_default_configuration(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """설정 파일이 없을 때 안전한 기본 설정이 출력되는지 확인한다."""
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["config", "show", "--json"]) == 0
+
+    output = capsys.readouterr().out
+    assert '"version": "261"' in output
+    assert '"provider": "codex"' in output

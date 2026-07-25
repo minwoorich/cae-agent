@@ -12,6 +12,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from cae_agent import __version__
+from cae_agent.config import (
+    DEFAULT_CONFIG_NAME,
+    ConfigError,
+    load_config,
+    prepare_workspace,
+    render_config_json,
+    render_config_text,
+)
 from cae_agent.doctor import CheckStatus, render_json, render_text, run_checks
 
 
@@ -54,6 +62,36 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("workspace"),
         help="쓰기 가능 여부를 검사할 작업공간 경로입니다.",
     )
+
+    config_parser = subparsers.add_parser(
+        "config",
+        help="CAE Agent 설정을 확인하고 작업공간을 준비합니다.",
+    )
+    config_subparsers = config_parser.add_subparsers(
+        dest="config_command",
+        required=True,
+    )
+    config_show_parser = config_subparsers.add_parser(
+        "show",
+        help="검증된 최종 설정값을 출력합니다.",
+    )
+    config_show_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    config_show_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="설정을 자동화용 JSON 형식으로 출력합니다.",
+    )
+    config_show_parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="출력 전에 정의된 작업공간 폴더를 생성합니다.",
+    )
     return parser
 
 
@@ -81,5 +119,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(
             any(result.status is CheckStatus.FAIL for result in results)
         )
+
+    if args.command == "config" and args.config_command == "show":
+        try:
+            config = load_config(args.config_file)
+            if args.prepare:
+                prepare_workspace(config.workspace)
+        except (ConfigError, OSError) as error:
+            parser.error(str(error))
+        print(
+            render_config_json(config)
+            if args.json_output
+            else render_config_text(config)
+        )
+        return 0
 
     return 0

@@ -1,0 +1,14 @@
+# 처음 지원하는 Ansys 2026 R1의 내부 버전 번호이다.
+[ansys]
+version = "261"
+workbench_port = 50055
+headless = false
+
+# AI 제공자의 인증정보는 이 파일에 저장하지 않는다.
+[agent]
+provider = "codex"
+max_retries = 3
+
+# 상대경로는 이 설정 파일이 있는 폴더를 기준으로 해석한다.
+[workspace]
+root = "workspace"
