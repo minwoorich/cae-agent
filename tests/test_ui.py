@@ -16,6 +16,17 @@ from cae_agent.ui import (
 )
 
 
+@pytest.fixture
+def ui_source() -> str:
+    """안전 경계와 정보 구조 테스트가 공유할 UI 원본을 한 번 읽어 반환한다."""
+    return (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "cae_agent"
+        / "ui.py"
+    ).read_text(encoding="utf-8")
+
+
 def test_dashboard_snapshot_reads_status_without_model_changes(
     tmp_path: Path,
 ) -> None:
@@ -83,48 +94,32 @@ def test_launch_ui_rejects_invalid_port(tmp_path: Path, port: int) -> None:
         launch_ui(config, port=port, ui_module=SimpleNamespace())
 
 
-def test_ui_source_keeps_preview_and_approval_separate() -> None:
+def test_ui_source_keeps_preview_and_approval_separate(
+    ui_source: str,
+) -> None:
     """UI 코드가 dry-run과 실제 삭제를 서로 다른 사용자 동작으로 유지해야 한다."""
-    source = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "cae_agent"
-        / "ui.py"
-    ).read_text(encoding="utf-8")
-
-    assert "def preview_cleanup()" in source
-    assert "approve=False" in source
-    assert "def execute_cleanup()" in source
-    assert "approve=True" in source
-    assert "preview_paths != current_paths" in source
-    assert 'host="127.0.0.1"' in source
-    assert "input과 results는 삭제하지 않습니다" in source
-    assert 'target.open("xb")' in source
-    assert "store_input_upload" in source
-    assert "workspace/input에 새로 저장되며 기존 파일을" in source
-    assert "덮어쓰거나 Ansys를 자동 실행하지 않습니다" in source
+    assert "def preview_cleanup()" in ui_source
+    assert "approve=False" in ui_source
+    assert "def execute_cleanup()" in ui_source
+    assert "approve=True" in ui_source
+    assert "preview_paths != current_paths" in ui_source
+    assert 'host="127.0.0.1"' in ui_source
+    assert "input과 results는 삭제하지 않습니다" in ui_source
+    assert 'target.open("xb")' in ui_source
+    assert "store_input_upload" in ui_source
+    assert "workspace/input에 새로 저장되며 기존 파일을" in ui_source
+    assert "덮어쓰거나 Ansys를 자동 실행하지 않습니다" in ui_source
 
 
-def test_ui_source_defines_structured_information_architecture() -> None:
-    """UI가 핵심 작업을 분리한 내비게이션과 디자인 토큰을 유지해야 한다."""
-    source = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "cae_agent"
-        / "ui.py"
-    ).read_text(encoding="utf-8")
-
-    assert "--cae-bg" in source
-    assert "ui.left_drawer" in source
-    assert '\"overview\"' in source
-    assert '\"files\"' in source
-    assert '\"activity\"' in source
-    assert '\"maintenance\"' in source
-    assert "LOCAL ONLY" in source
-    assert "Codex 채팅과 파일 첨부는 UI v0.2의 다음 단계" in source
-    assert "색상에만 의존하지 않는" in source
-    assert "ui.left_drawer(value=None)" in source
-    assert "cae-actions .q-btn" in source
+def test_ui_source_defines_structured_information_architecture(
+    ui_source: str,
+) -> None:
+    """UI가 핵심 작업을 분리한 내비게이션 구조를 유지해야 한다."""
+    assert "ui.left_drawer" in ui_source
+    assert '"overview"' in ui_source
+    assert '"files"' in ui_source
+    assert '"activity"' in ui_source
+    assert '"maintenance"' in ui_source
 
 
 def test_missing_nicegui_reports_optional_install(

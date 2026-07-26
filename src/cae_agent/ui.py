@@ -411,7 +411,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             ui.label(
                 "Codex 채팅과 파일 첨부는 UI v0.2의 다음 단계에서 연결됩니다."
             ).classes("cae-muted text-xs leading-relaxed")
-            ui.badge("ROADMAP #43–#45", color="grey-8").props("outline")
+            ui.badge("ROADMAP #43-#45", color="grey-8").props("outline")
 
     @ui.refreshable
     def overview_content() -> None:
@@ -684,7 +684,9 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     def preview_cleanup() -> None:
         """사용자 승인 전에 삭제되지 않는 정리 후보만 계산해 표시한다."""
         try:
-            days = int(retention.value)
+            # 브라우저의 number 입력 제한은 개발자 도구나 직접 요청으로 우회할
+            # 수 있으므로 서버에서도 보존 기간을 0일 이상으로 다시 제한한다.
+            days = max(0, int(retention.value))
             result = clean_workspace(
                 config,
                 older_than_days=days,
