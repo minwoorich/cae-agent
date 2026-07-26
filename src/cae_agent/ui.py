@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 import re
 from typing import Any, Callable
+from uuid import uuid4
 
 from cae_agent.attachments import (
     SUPPORTED_ATTACHMENT_EXTENSIONS,
@@ -115,6 +117,24 @@ class StoredUpload:
 
     path: Path
     size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class PendingUploadReplacement:
+    """사용자 승인 전 메모리에만 보관하는 중복 업로드 스냅숏."""
+
+    target: Path
+    content: bytes
+    original_size: int
+    original_mtime_ns: int
+
+
+class UploadConflict(UIError):
+    """같은 이름의 파일이 있어 교체 승인을 받아야 함을 나타낸다."""
+
+    def __init__(self, pending: PendingUploadReplacement) -> None:
+        super().__init__(f"같은 이름의 입력 파일이 이미 있습니다: {pending.target.name}")
+        self.pending = pending
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +287,19 @@ def store_input_upload(
     target = input_directory / filename
     if target.is_symlink():
         raise UIError("같은 이름의 심볼릭 링크가 있어 업로드를 차단했습니다.")
+    if target.exists():
+        try:
+            current = target.stat()
+        except OSError as error:
+            raise UIError(f"기존 입력 파일을 확인할 수 없습니다: {error}") from error
+        raise UploadConflict(
+            PendingUploadReplacement(
+                target=target,
+                content=content,
+                original_size=current.st_size,
+                original_mtime_ns=current.st_mtime_ns,
+            )
+        )
     try:
         with target.open("xb") as stream:
             stream.write(content)
@@ -278,6 +311,53 @@ def store_input_upload(
         raise UIError(f"입력 파일을 저장할 수 없습니다: {error}") from error
 
     return StoredUpload(path=target, size_bytes=len(content))
+
+
+def replace_input_upload(
+    config: AppConfig,
+    pending: PendingUploadReplacement,
+) -> StoredUpload:
+    """미리 본 기존 파일이 그대로일 때만 새 업로드로 원자적으로 교체한다."""
+    if config.workspace.input_dir.is_symlink() or pending.target.is_symlink():
+        raise UIError("승인 대상이 입력 폴더의 일반 파일이 아니므로 교체를 차단했습니다.")
+    input_directory = config.workspace.input_dir.resolve()
+    target = pending.target.resolve()
+    if target.parent != input_directory:
+        raise UIError("승인 대상이 입력 폴더의 일반 파일이 아니므로 교체를 차단했습니다.")
+    try:
+        current = target.stat()
+    except OSError as error:
+        raise UIError("승인 전에 기존 파일 상태가 변경되었습니다.") from error
+    if (
+        current.st_size != pending.original_size
+        or current.st_mtime_ns != pending.original_mtime_ns
+    ):
+        raise UIError(
+            "경고 모달을 연 뒤 기존 파일이 변경되었습니다. "
+            "새로 업로드해 다시 확인하세요."
+        )
+
+    temporary = target.parent / f".{target.name}.{uuid4().hex}.upload"
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(pending.content)
+        temporary.replace(target)
+    except OSError as error:
+        temporary.unlink(missing_ok=True)
+        raise UIError(f"입력 파일을 교체할 수 없습니다: {error}") from error
+
+    audit_path = config.workspace.logs_dir / "upload-replacements.jsonl"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "input_replaced",
+        "filename": target.name,
+        "previous_size_bytes": pending.original_size,
+        "new_size_bytes": len(pending.content),
+    }
+    with audit_path.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return StoredUpload(path=target, size_bytes=len(pending.content))
 
 
 def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
@@ -696,6 +776,11 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         ui.label(check.message).classes("cae-muted text-sm")
 
     upload_feedback: Any
+    replacement_summary: Any
+    replacement_detail: Any
+    replacement_state: dict[str, PendingUploadReplacement | None] = {
+        "pending": None
+    }
     chat_attachment_chips: Any
     selected_inputs: set[str] = set()
     chat_session = ChatSession()
@@ -1121,6 +1206,27 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 filename=event.file.name,
                 content=content,
             )
+        except UploadConflict as conflict:
+            pending = conflict.pending
+            if replacement_state["pending"] is not None:
+                upload_feedback.set_text(
+                    "먼저 열려 있는 파일 교체 경고를 처리한 뒤 다시 업로드하세요."
+                )
+                upload_feedback.classes(replace="text-sm text-negative")
+                return
+            replacement_state["pending"] = pending
+            replacement_summary.set_text(
+                f"`{pending.target.name}` 파일이 이미 있습니다."
+            )
+            replacement_detail.set_text(
+                f"기존 {_format_bytes(pending.original_size)} → "
+                f"새 파일 {_format_bytes(len(pending.content))}"
+            )
+            replacement_dialog.open()
+            upload_feedback.set_text(
+                "중복 파일 교체 여부를 경고 모달에서 확인하세요."
+            )
+            upload_feedback.classes(replace="text-sm text-accent")
         except (OSError, UIError) as error:
             upload_feedback.set_text(f"업로드 실패: {error}")
             upload_feedback.classes(replace="text-sm text-negative")
@@ -1135,6 +1241,39 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             upload_feedback.classes(replace="text-sm text-positive")
             overview_content.refresh()
         refresh_attachment_selection()
+
+    def cancel_upload_replacement() -> None:
+        """중복 업로드 내용을 버리고 기존 입력 파일을 그대로 유지한다."""
+        replacement_state["pending"] = None
+        replacement_dialog.close()
+        upload_feedback.set_text("파일 교체를 취소했습니다. 기존 파일은 유지됩니다.")
+        upload_feedback.classes(replace="text-sm cae-muted")
+
+    def approve_upload_replacement() -> None:
+        """모달에서 확인한 기존 파일이 그대로일 때만 교체를 실행한다."""
+        pending = replacement_state["pending"]
+        if pending is None:
+            upload_feedback.set_text("승인할 중복 업로드가 없습니다.")
+            upload_feedback.classes(replace="text-sm text-negative")
+            replacement_dialog.close()
+            return
+        try:
+            stored = replace_input_upload(config, pending)
+        except (OSError, UIError) as error:
+            upload_feedback.set_text(f"파일 교체 실패: {error}")
+            upload_feedback.classes(replace="text-sm text-negative")
+        else:
+            selected_inputs.add(stored.path.name)
+            kind = classify_attachment(stored.path)
+            upload_feedback.set_text(
+                f"교체 완료: {kind.value} · {stored.path.name} · "
+                f"{_format_bytes(stored.size_bytes)}"
+            )
+            upload_feedback.classes(replace="text-sm text-positive")
+            replacement_state["pending"] = None
+            replacement_dialog.close()
+            overview_content.refresh()
+            refresh_attachment_selection()
 
     feedback: Any
     retention: Any
@@ -1463,6 +1602,31 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             ui.button(
                 "삭제 승인",
                 on_click=execute_cleanup,
+                color="negative",
+            ).props("unelevated rounded no-caps")
+
+    with ui.dialog() as replacement_dialog, ui.card().classes(
+        "cae-panel cae-danger min-w-96 max-w-xl p-6 gap-4"
+    ):
+        with ui.row().classes("items-center gap-3"):
+            ui.icon("warning").classes("text-accent text-3xl")
+            ui.label("기존 입력 파일 교체").classes("font-bold text-xl")
+        replacement_summary = ui.label().classes("font-medium")
+        replacement_detail = ui.label().classes("cae-muted text-sm")
+        ui.label(
+            "교체하면 같은 이름의 기존 파일 내용이 사라집니다. 승인 직전에 "
+            "기존 파일의 크기와 수정 시각을 다시 확인하며, 달라졌다면 교체하지 "
+            "않습니다."
+        ).classes("cae-muted text-sm")
+        with ui.row().classes("justify-end w-full gap-2"):
+            ui.button(
+                "기존 파일 유지",
+                on_click=cancel_upload_replacement,
+            ).props("flat rounded no-caps")
+            ui.button(
+                "파일 교체 승인",
+                icon="published_with_changes",
+                on_click=approve_upload_replacement,
                 color="negative",
             ).props("unelevated rounded no-caps")
 
