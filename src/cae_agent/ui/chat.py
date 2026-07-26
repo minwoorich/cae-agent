@@ -851,51 +851,48 @@ def build_chat_panel(
             ).props("unelevated rounded no-caps")
 
 
-    with ui.tab_panel(chat_tab):
+    with ui.tab_panel(chat_tab).classes("cae-chat-tab-panel"):
         with ui.column().classes(
-            "cae-chat-page w-full max-w-[1600px] mx-auto p-3 md:p-5 gap-3"
+            "cae-chat-page w-full max-w-[1600px] mx-auto"
         ):
-            with ui.row().classes(
-                "cae-chat-statusbar w-full items-center justify-between "
-                "gap-3 px-4 rounded-2xl"
-            ):
-                with ui.row().classes(
-                    "items-center gap-3 min-w-0"
-                ):
-                    chat_activity_spinner = ui.spinner(
-                        size="20px",
-                        color="accent",
+            # 연결 배지를 항상 펼쳐 두면 채팅 세로 공간을 지속적으로 차지한다.
+            # 작은 고정 버튼 안의 메뉴로 옮겨 필요할 때만 상세 상태를 확인한다.
+            with ui.button(icon="hub").props(
+                "flat dense round aria-label='서비스 연결 상태'"
+            ).classes("cae-session-menu-trigger"):
+                with ui.menu().classes("cae-session-menu p-3"):
+                    ui.label("서비스 연결").classes(
+                        "font-semibold text-sm px-2 pb-1"
                     )
-                    chat_activity_label = ui.label("대기 중").classes(
-                        "text-sm cae-muted font-medium"
+                    with ui.column().classes("gap-2 min-w-64"):
+                        codex_connection_badge = ui.badge(
+                            "Codex · 미연결",
+                            color="grey-6",
+                        ).props("outline")
+                        codex_connection_detail = ui.label(
+                            "첫 메시지를 보내면 Codex에 연결합니다."
+                        ).classes("cae-muted text-xs px-1")
+                        workbench_connection_badge = ui.badge(
+                            "Workbench · 확인 전",
+                            color="grey-6",
+                        ).props("outline")
+                        workbench_connection_detail = ui.label(
+                            "Workbench 연결을 확인합니다."
+                        ).classes("cae-muted text-xs px-1")
+                        ui.badge(
+                            "안전 작업 자동 승인",
+                            color="positive",
+                        ).props("outline")
+                        ui.button(
+                            "연결 상태 새로고침",
+                            icon="refresh",
+                            on_click=refresh_service_connections,
+                        ).props("flat dense no-caps").classes("self-end")
+                    ui.timer(
+                        0.1,
+                        refresh_service_connections,
+                        once=True,
                     )
-                    ui.separator().props("vertical").classes("h-5 opacity-30")
-                    codex_connection_badge = ui.badge(
-                        "Codex · 미연결",
-                        color="grey-6",
-                    ).props("outline")
-                    workbench_connection_badge = ui.badge(
-                        "Workbench · 확인 전",
-                        color="grey-6",
-                    ).props("outline")
-                    ui.badge("안전 작업 자동 승인", color="positive").props(
-                        "outline"
-                    )
-                ui.button(
-                    icon="refresh",
-                    on_click=refresh_service_connections,
-                ).props("flat dense round").tooltip("연결 상태 새로고침")
-                codex_connection_detail = ui.label(
-                    "첫 메시지를 보내면 Codex에 연결합니다."
-                ).classes("hidden")
-                workbench_connection_detail = ui.label(
-                    "Workbench 연결을 확인합니다."
-                ).classes("hidden")
-                ui.timer(
-                    0.1,
-                    refresh_service_connections,
-                    once=True,
-                )
 
             with ui.column().classes("cae-chat-shell w-full gap-0"):
                 chat_stream = ui.column().classes(
@@ -942,7 +939,22 @@ def build_chat_panel(
                             "cae-composer-actions w-full items-center "
                             "justify-between gap-2"
                         ):
-                            with ui.row().classes("items-center gap-1"):
+                            with ui.row().classes("items-center gap-1 min-w-0"):
+                                # 생성 상태는 입력창 가까이에 두어 연결 메뉴를
+                                # 열지 않아도 현재 응답 여부를 즉시 알 수 있게 한다.
+                                with ui.row().classes(
+                                    "cae-chat-activity items-center gap-2 "
+                                    "min-w-0"
+                                ):
+                                    chat_activity_spinner = ui.spinner(
+                                        size="20px",
+                                        color="accent",
+                                    )
+                                    chat_activity_label = ui.label(
+                                        "대기 중"
+                                    ).classes(
+                                        "text-xs cae-muted font-medium truncate"
+                                    )
                                 ui.button(
                                     icon="add",
                                     on_click=open_chat_file_picker,
