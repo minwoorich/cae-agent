@@ -14,6 +14,7 @@ from cae_agent.ui import (
     dashboard_snapshot,
     input_file_summaries,
     launch_ui,
+    probe_workbench_connection,
     store_input_upload,
 )
 
@@ -58,6 +59,50 @@ def test_dashboard_snapshot_reads_status_without_model_changes(
     assert snapshot.recent_logs == ("latest.log",)
     assert snapshot.recent_results == ("model.wbpj",)
     assert snapshot.workspace.total_file_count == 2
+
+
+def test_workbench_probe_does_not_treat_missing_metadata_as_connected(
+    tmp_path: Path,
+) -> None:
+    """세션 파일이 없으면 Workbench 연결됨으로 잘못 표시하지 않아야 한다."""
+    config = load_config(current_directory=tmp_path)
+
+    result = probe_workbench_connection(config)
+
+    assert result.connected is False
+    assert result.label == "Workbench · 세션 없음"
+
+
+def test_workbench_probe_requires_real_ping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실제 ping까지 성공한 경우에만 Workbench 연결됨을 반환해야 한다."""
+    config = load_config(current_directory=tmp_path)
+    session_file = tmp_path / "session.json"
+    session_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "cae_agent.ui.workbench_paths",
+        lambda _config: SimpleNamespace(session_file=session_file),
+    )
+    monkeypatch.setattr(
+        "cae_agent.ui.load_session",
+        lambda _path: SimpleNamespace(server_version="261"),
+    )
+    monkeypatch.setattr(
+        "cae_agent.ui.connect_session",
+        lambda _config: object(),
+    )
+    monkeypatch.setattr(
+        "cae_agent.ui.ping_session",
+        lambda _workbench: "project.wbpj",
+    )
+
+    result = probe_workbench_connection(config)
+
+    assert result.connected is True
+    assert result.label == "Workbench 261 · 연결됨"
+    assert "project.wbpj" in result.detail
 
 
 def test_input_file_summaries_return_safe_recent_metadata(
@@ -148,6 +193,9 @@ def test_ui_source_defines_structured_information_architecture(
     assert '"overview"' in ui_source
     assert '"chat"' in ui_source
     assert '"files"' in ui_source
+    assert "LOCAL SESSION" not in ui_source
+    assert "Codex · 미연결" in ui_source
+    assert "Workbench · 확인 전" in ui_source
     assert '"activity"' in ui_source
     assert '"maintenance"' in ui_source
 
