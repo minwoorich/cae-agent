@@ -183,8 +183,28 @@ def test_ui_source_keeps_preview_and_approval_separate(
     assert "input과 results는 삭제하지 않습니다" in ui_source
     assert 'target.open("xb")' in ui_source
     assert "store_input_upload" in ui_source
-    assert "파일 종류는 자동 구분하며 첨부만으로 실행하지 않습니다" in ui_source
-    assert "파일 첨부 또는 드래그앤드롭" in ui_source
+    # 업로드 이벤트는 파일 저장과 다음 메시지 첨부까지만 수행해야 한다.
+    # 실행 함수가 handle_upload 내부에 추가되면 이 검사가 실패하도록 범위를 자른다.
+    upload_handler = ui_source.split(
+        "async def handle_upload", maxsplit=1
+    )[1].split("def cancel_upload_replacement", maxsplit=1)[0]
+    assert "store_input_upload" in upload_handler
+    assert "selected_inputs.add" in upload_handler
+    assert "stream_codex_message" not in upload_handler
+    assert "cae-hidden-upload" in ui_source
+    assert 'run_method("pickFiles")' in ui_source
+
+
+def test_ui_source_auto_scrolls_stream_without_interrupting_history_reading(
+    ui_source: str,
+) -> None:
+    """스트리밍 자동 스크롤이 하단 추적과 과거 대화 읽기를 함께 지원해야 한다."""
+    assert "async def scroll_chat_to_latest" in ui_source
+    assert "stream.dataset.autoFollow" in ui_source
+    assert "isNearBottom()" in ui_source
+    assert "await scroll_chat_to_latest()" in ui_source
+    assert "await scroll_chat_to_latest(force=True)" in ui_source
+    assert "id=cae-chat-stream" in ui_source
 
 
 def test_ui_source_defines_structured_information_architecture(

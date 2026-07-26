@@ -540,25 +540,47 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             position: sticky;
             bottom: 0;
             z-index: 2;
-            border: 0;
-            border-top: 1px solid var(--cae-border);
-            border-radius: 0;
-            background: rgba(10, 21, 37, 0.98);
+            border: 0 !important;
+            border-radius: 0 !important;
+            background: linear-gradient(
+                180deg,
+                rgba(8, 17, 31, 0),
+                rgba(8, 17, 31, 0.98) 24%
+            ) !important;
             backdrop-filter: blur(16px);
+            box-shadow: none !important;
         }
-        .cae-chat-upload {
-            min-height: 54px !important;
-            max-height: 54px !important;
-            border: 1px dashed rgba(56, 189, 248, 0.38);
-            border-radius: 14px;
+        .cae-composer-inner {
+            width: min(920px, 100%);
+            margin: 0 auto;
+            padding: 0.55rem 0.65rem;
+            border: 1px solid rgba(148, 163, 184, 0.32);
+            border-radius: 26px;
+            background: #111d2e;
+            box-shadow: 0 10px 32px rgba(0, 0, 0, 0.24);
+        }
+        .cae-composer-inner:focus-within {
+            border-color: rgba(148, 163, 184, 0.56);
+        }
+        .cae-hidden-upload { display: none !important; }
+        .cae-chat-input .q-field__control {
+            min-height: 42px !important;
+            padding: 0 0.35rem !important;
+            color: var(--cae-text);
+        }
+        .cae-chat-input textarea {
+            max-height: 180px;
+            line-height: 1.55 !important;
+            resize: none !important;
+        }
+        .cae-composer-feedback:empty { display: none; }
+        .cae-composer-actions { min-height: 38px; }
+        .cae-composer .q-chip { max-width: min(360px, 76vw); }
+        .cae-composer .q-chip__content {
             overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
-        .cae-chat-upload .q-uploader__header {
-            min-height: 52px;
-            background: transparent;
-            box-shadow: none;
-        }
-        .cae-chat-upload .q-uploader__list { display: none; }
         .q-tab-panels, .q-tab-panel {
             background: transparent !important;
         }
@@ -591,6 +613,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             }
             .cae-chat-stream { padding: 1rem; }
             .cae-message { max-width: 100% !important; }
+            .cae-composer { padding: 0.65rem !important; }
+            .cae-composer-inner { border-radius: 22px; }
         }
         """
     )
@@ -862,6 +886,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     if hasattr(ui, "context") and hasattr(ui.context, "client"):
         ui.context.client.on_disconnect(codex_client.close)
     chat_input: Any
+    chat_stream: Any
+    chat_uploader: Any
     chat_status: Any
     chat_activity_spinner: Any
     chat_activity_label: Any
@@ -872,6 +898,54 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     send_button: Any
     stop_button: Any
     retry_button: Any
+
+    async def scroll_chat_to_latest(*, force: bool = False) -> None:
+        """새 메시지를 보여주되 사용자가 과거 대화를 읽는 중이면 위치를 보존한다.
+
+        새 질문을 보낸 직후에는 ``force=True``로 항상 맨 아래로 이동한다.
+        스트리밍 중에는 현재 하단과의 거리가 220px 이내일 때만 따라가므로,
+        사용자가 직접 위로 스크롤해 이전 답변을 읽는 동작을 방해하지 않는다.
+        """
+        await asyncio.sleep(0)
+        force_value = "true" if force else "false"
+        await ui.run_javascript(
+            """
+            const stream = document.getElementById('cae-chat-stream');
+            if (!stream) return;
+            const isNearBottom = () =>
+                stream.scrollHeight - stream.scrollTop -
+                stream.clientHeight <= 220;
+
+            // 사용자가 스크롤을 위로 올리면 자동 추적을 멈추고, 다시 하단으로
+            // 내려오면 추적을 재개한다. 이 값을 DOM에 보관해야 새 텍스트가
+            // 추가되어 scrollHeight가 커져도 직전 사용자의 의도를 잃지 않는다.
+            if (!stream.dataset.autoFollowInitialized) {
+                stream.dataset.autoFollowInitialized = 'true';
+                stream.dataset.autoFollow = isNearBottom() ? 'true' : 'false';
+                stream.addEventListener('scroll', () => {
+                    stream.dataset.autoFollow =
+                        isNearBottom() ? 'true' : 'false';
+                }, {passive: true});
+            }
+            if (FORCE_SCROLL) {
+                stream.dataset.autoFollow = 'true';
+            }
+            if (stream.dataset.autoFollow === 'true') {
+                requestAnimationFrame(() => {
+                    stream.scrollTo({
+                        top: stream.scrollHeight,
+                        // 짧은 스트리밍 델타마다 애니메이션을 다시 시작하면
+                        // 스크롤이 답변 속도를 따라가지 못하므로 즉시 이동한다.
+                        behavior: 'auto',
+                    });
+                });
+            }
+            """.replace("FORCE_SCROLL", force_value)
+        )
+
+    async def open_chat_file_picker() -> None:
+        """숨겨 둔 기본 업로더의 파일 선택 창을 작성기 ``+`` 버튼으로 연다."""
+        await chat_uploader.run_method("pickFiles")
 
     def refresh_codex_connection_badge(*, error: str | None = None) -> None:
         """현재 App Server 프로세스 상태를 Codex 연결 배지에 반영한다."""
@@ -911,9 +985,6 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         chat_attachment_chips.clear()
         with chat_attachment_chips:
             if not selected_inputs:
-                ui.label(
-                    "이미지나 CAE 모델 파일을 바로 첨부할 수 있습니다."
-                ).classes("cae-muted text-sm")
                 return
             for name in sorted(selected_inputs):
                 kind = classify_attachment(name)
@@ -941,19 +1012,29 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             chat_activity_label.set_text("Codex가 응답을 생성하고 있습니다")
             chat_activity_label.classes(replace="text-sm text-accent font-medium")
             send_button.disable()
+            send_button.set_visibility(False)
             stop_button.enable()
+            stop_button.set_visibility(True)
             retry_button.disable()
+            retry_button.set_visibility(False)
             chat_status.set_text("Codex가 답변을 생성하고 있습니다.")
             chat_status.classes(replace="text-sm text-accent")
         else:
             chat_activity_spinner.set_visibility(False)
             send_button.enable()
+            send_button.set_visibility(True)
             stop_button.disable()
+            stop_button.set_visibility(False)
             can_retry = any(
                 message.role is MessageRole.USER
                 for message in chat_session.messages
             )
-            if can_retry:
+            show_retry = can_retry and chat_session.status in {
+                ChatStatus.STOPPED,
+                ChatStatus.ERROR,
+            }
+            retry_button.set_visibility(show_retry)
+            if show_retry:
                 retry_button.enable()
             else:
                 retry_button.disable()
@@ -1162,12 +1243,14 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         event.text,
                     )
                     chat_messages.refresh()
+                    await scroll_chat_to_latest()
                 elif event.kind == "approval" and event.approval is not None:
                     if requires_manual_approval(event.approval):
                         pending_approvals[event.approval.request_id] = (
                             event.approval
                         )
                         approval_cards.refresh()
+                        await scroll_chat_to_latest()
                         chat_status.set_text(
                             "위험 작업이 사용자 승인을 기다리고 있습니다."
                         )
@@ -1215,6 +1298,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         finally:
             chat_messages.refresh()
             update_chat_controls()
+            await scroll_chat_to_latest()
 
     async def send_chat_message() -> None:
         """입력값과 선택 첨부를 실제 Codex 대화 스레드로 전송한다."""
@@ -1237,6 +1321,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         refresh_attachment_selection()
         chat_messages.refresh()
         update_chat_controls()
+        await scroll_chat_to_latest(force=True)
         await stream_codex_message(
             assistant,
             prompt=prompt,
@@ -1265,6 +1350,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         user_message = chat_session.messages[-2]
         chat_messages.refresh()
         update_chat_controls()
+        await scroll_chat_to_latest(force=True)
         await stream_codex_message(
             assistant,
             prompt=user_message.content,
@@ -1542,29 +1628,17 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     )
 
                 with ui.column().classes("cae-chat-shell w-full gap-0"):
-                    with ui.column().classes(
+                    chat_stream = ui.column().classes(
                         "cae-chat-stream w-full gap-4"
-                    ):
+                    ).props("id=cae-chat-stream")
+                    with chat_stream:
                         chat_messages()
                         approval_cards()
 
                     with ui.card().classes(
-                        "cae-composer cae-panel w-full p-4 gap-3"
+                        "cae-composer cae-panel w-full px-4 pt-5 pb-3 gap-1"
                     ):
-                        with ui.row().classes(
-                            "w-full items-center justify-between"
-                        ):
-                            ui.label("첨부 파일").classes(
-                                "font-bold text-sm"
-                            )
-                            ui.label(
-                                "파일 종류는 자동 구분하며 첨부만으로 실행하지 않습니다."
-                            ).classes("cae-muted text-xs")
-                        upload_feedback = ui.label(
-                            "이미지나 CAE 모델 파일을 선택하거나 끌어놓으세요."
-                        ).classes("cae-muted text-sm")
-                        ui.upload(
-                            label="파일 첨부 또는 드래그앤드롭",
+                        chat_uploader = ui.upload(
                             on_upload=handle_upload,
                             on_rejected=lambda: upload_feedback.set_text(
                                 "첨부 거부: 지원 형식과 파일 크기를 확인해 주세요."
@@ -1577,42 +1651,57 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         ).props(
                             'accept=".png,.jpg,.jpeg,.webp,.bmp,.step,.stp,'
                             '.iges,.igs,.scdoc,.wbpj,.mechdat,.csv,.json,.txt" '
-                            "flat bordered"
-                        ).classes("cae-chat-upload w-full")
-                        chat_attachment_chips = ui.row().classes(
-                            "w-full gap-2 flex-wrap"
-                        )
-                        chat_input = ui.textarea(
-                            label="CAE 작업을 자연어로 입력하세요",
-                            placeholder=(
-                                "예: 선택한 STEP 파일의 형상과 단위를 "
-                                "검토할 계획을 작성해줘"
-                            ),
-                        ).props(
-                            "outlined autogrow rows=2 maxlength=4000"
-                        ).classes("w-full")
-                        chat_status = ui.label(
-                            "메시지를 입력할 수 있습니다."
-                        ).classes("cae-muted text-sm")
-                        with ui.row().classes(
-                            "w-full items-center justify-end gap-2 flex-wrap"
+                            "flat"
+                        ).classes("cae-hidden-upload")
+                        with ui.column().classes(
+                            "cae-composer-inner gap-1"
                         ):
-                            retry_button = ui.button(
-                                "다시 시도",
-                                icon="replay",
-                                on_click=retry_chat_message,
-                            ).props("outline rounded no-caps")
-                            stop_button = ui.button(
-                                "응답 중지",
-                                icon="stop_circle",
-                                on_click=stop_chat_message,
-                                color="negative",
-                            ).props("outline rounded no-caps")
-                            send_button = ui.button(
-                                "전송",
-                                icon="send",
-                                on_click=send_chat_message,
-                            ).props("unelevated rounded no-caps")
+                            chat_attachment_chips = ui.row().classes(
+                                "w-full gap-1 flex-wrap px-1"
+                            )
+                            chat_input = ui.textarea(
+                                placeholder="CAE 작업을 자연어로 입력하세요",
+                            ).props(
+                                "borderless autogrow rows=1 maxlength=4000"
+                            ).classes("cae-chat-input w-full")
+                            with ui.row().classes(
+                                "cae-composer-actions w-full items-center "
+                                "justify-between gap-2"
+                            ):
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.button(
+                                        icon="add",
+                                        on_click=open_chat_file_picker,
+                                    ).props(
+                                        "flat dense round color=grey-4"
+                                    ).tooltip("파일 첨부")
+                                    retry_button = ui.button(
+                                        icon="replay",
+                                        on_click=retry_chat_message,
+                                    ).props(
+                                        "flat dense round color=grey-4"
+                                    ).tooltip("마지막 요청 다시 시도")
+                                with ui.row().classes("items-center gap-1"):
+                                    stop_button = ui.button(
+                                        icon="stop",
+                                        on_click=stop_chat_message,
+                                        color="negative",
+                                    ).props(
+                                        "unelevated dense round"
+                                    ).tooltip("응답 중지")
+                                    send_button = ui.button(
+                                        icon="arrow_upward",
+                                        on_click=send_chat_message,
+                                    ).props(
+                                        "unelevated dense round"
+                                    ).tooltip("전송")
+                        upload_feedback = ui.label("").classes(
+                            "cae-composer-feedback text-xs text-center "
+                            "w-full max-w-4xl mx-auto"
+                        )
+                        # 기존 상태 갱신 코드는 유지하되 중복 안내 문구는 화면에서
+                        # 숨긴다. 생성 상태는 상단 상태 표시줄에서 한 번만 보여준다.
+                        chat_status = ui.label("").classes("hidden")
                         update_chat_controls()
 
         with ui.tab_panel(activity_tab):
