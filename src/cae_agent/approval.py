@@ -37,7 +37,7 @@ class ApprovalRequest:
     fingerprint: str
 
 
-def _redact_secrets(text: str) -> str:
+def redact_secrets(text: str) -> str:
     """승인 카드와 감사 로그에 흔한 토큰 형식이 노출되지 않게 가린다."""
     patterns = (
         r"gh[pousr]_[A-Za-z0-9_]{20,}",
@@ -65,7 +65,7 @@ def build_approval_request(
     """명령 또는 파일 변경 요청을 보수적인 위험도로 분류한다."""
     item_id = str(params.get("itemId") or "unknown")
     if method == "item/commandExecution/requestApproval":
-        command = _redact_secrets(
+        command = redact_secrets(
             str(params.get("command") or "(명령 내용 없음)")
         )
         lowered = command.lower()
@@ -112,11 +112,11 @@ def build_approval_request(
         )
         title = "파일 변경 승인"
         target = grant_root
-        preview = _redact_secrets(
+        preview = redact_secrets(
             str(params.get("reason") or "Codex가 파일 변경 권한을 요청했습니다.")
         )
 
-    reason = _redact_secrets(
+    reason = redact_secrets(
         str(params.get("reason") or "Codex가 작업 수행에 승인을 요청했습니다.")
     )
     fingerprint_payload = {
