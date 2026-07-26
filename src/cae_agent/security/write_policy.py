@@ -67,21 +67,28 @@ def is_generated_write_target(
 def approval_decision(
     request: ApprovalRequest,
     workspace: WorkspaceConfig,
+    *,
+    yolo_mode: bool = False,
 ) -> ApprovalDecision:
-    """위험도와 대상 경로를 함께 검사해 자동·수동·거절을 결정한다.
+    """위험도, 대상 경로와 현재 UI 승인 모드로 최종 결정을 내린다.
 
     일반 읽기 명령은 기존처럼 자동 승인한다. 실제 CAE 실행과 삭제는 사용자
-    확인을 유지한다. 파일 변경은 ``generated`` 내부의 작업별 스크립트에만
-    자동 승인을 허용하고 나머지 위치는 사용자도 우회 승인할 수 없게 거절한다.
+    확인 모드에서만 수동 승인을 유지하고, YOLO 모드에서는 요청 한 건마다 자동
+    승인한다. 파일 변경은 모드와 관계없이 ``generated`` 내부의 작업별
+    스크립트에만 허용해 핵심 소스와 업로드 원본 보호 경계를 유지한다.
     """
-    if request.risk in {ApprovalRisk.EXECUTE, ApprovalRisk.DELETE}:
-        return ApprovalDecision.MANUAL_APPROVAL
-    if request.risk is ApprovalRisk.ROUTINE:
-        return ApprovalDecision.AUTO_APPROVE
     if request.method == "item/fileChange/requestApproval":
         return (
             ApprovalDecision.AUTO_APPROVE
             if is_generated_write_target(request.target, workspace)
             else ApprovalDecision.DENY
         )
+    if request.risk in {ApprovalRisk.EXECUTE, ApprovalRisk.DELETE}:
+        return (
+            ApprovalDecision.AUTO_APPROVE
+            if yolo_mode
+            else ApprovalDecision.MANUAL_APPROVAL
+        )
+    if request.risk is ApprovalRisk.ROUTINE:
+        return ApprovalDecision.AUTO_APPROVE
     return ApprovalDecision.DENY

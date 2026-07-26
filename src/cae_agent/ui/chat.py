@@ -20,6 +20,7 @@ from cae_agent.ui.files import (
     MAX_UPLOAD_SIZE_BYTES, PendingUploadReplacement, UIError, UploadConflict,
     format_bytes as _format_bytes, replace_input_upload, store_input_upload,
 )
+from cae_agent.ui.session_menu import build_session_menu
 from cae_agent.security.write_policy import ApprovalDecision, approval_decision
 
 
@@ -53,13 +54,9 @@ def build_chat_panel(
     workbench_probe: Callable[[AppConfig], Any],
 ) -> None:
     """브라우저별 Codex 채팅 상태를 만들고 현재 탭 패널에 화면을 등록한다."""
-    upload_feedback: Any
-    replacement_summary: Any
-    replacement_detail: Any
     replacement_state: dict[str, PendingUploadReplacement | None] = {
         "pending": None
     }
-    chat_attachment_chips: Any
     selected_inputs: set[str] = set()
     chat_session = ChatSession()
     # 브라우저 세션마다 대화 문맥과 App Server 프로세스를 분리한다.
@@ -68,6 +65,9 @@ def build_chat_panel(
         audit_path=config.workspace.logs_dir / "codex-approvals.jsonl",
     )
     pending_approvals: dict[int, ApprovalRequest] = {}
+    # YOLO 선택은 설정 파일에 저장하지 않고 현재 브라우저 세션 메모리에만 둔다.
+    # 새로고침이나 재접속 시 확인 모드로 복귀해 사용자가 다시 명시적으로 켜야 한다.
+    yolo_mode_state = {"enabled": False}
     # 진행 단계는 assistant 메시지 ID별로 보관한다. 메뉴 탭은 같은 페이지의
     # 렌더링만 전환하므로 사용자가 다른 메뉴를 보는 동안에도 이 상태와 Codex
     # 스트림은 유지된다. 브라우저 연결 자체가 끊기면 아래 on_disconnect에서
@@ -77,19 +77,34 @@ def build_chat_panel(
     # 테스트용 UI 대역에는 context가 없을 수 있으므로 실제 NiceGUI에서만 등록한다.
     if hasattr(ui, "context") and hasattr(ui.context, "client"):
         ui.context.client.on_disconnect(codex_client.close)
-    chat_input: Any
-    chat_stream: Any
-    chat_uploader: Any
-    chat_status: Any
-    chat_activity_spinner: Any
-    chat_activity_label: Any
-    codex_connection_badge: Any
-    workbench_connection_badge: Any
-    codex_connection_detail: Any
-    workbench_connection_detail: Any
-    send_button: Any
-    stop_button: Any
-    retry_button: Any
+    async def change_approval_mode(event: Any) -> None:
+        """스위치 상태를 반영하고 YOLO 전환 시 대기 중 요청도 즉시 승인한다."""
+        enabled = bool(event.value)
+        yolo_mode_state["enabled"] = enabled
+        if enabled:
+            approval_mode_badge.set_text("YOLO · 모두 자동 승인")
+            approval_mode_badge.props("color=negative outline")
+            chat_status.set_text(
+                "YOLO 모드: 실행과 삭제 요청도 이 세션에서 자동 승인합니다."
+            )
+            chat_status.classes(replace="text-sm text-negative")
+            for request in list(pending_approvals.values()):
+                await codex_client.resolve_approval(
+                    request.request_id,
+                    request.fingerprint,
+                    approved=True,
+                    automatic=True,
+                    automatic_detail="yolo_mode",
+                )
+                pending_approvals.pop(request.request_id, None)
+            approval_cards.refresh()
+        else:
+            approval_mode_badge.set_text("확인 모드")
+            approval_mode_badge.props("color=positive outline")
+            chat_status.set_text(
+                "확인 모드: 위험한 실행과 삭제는 작업별로 확인합니다."
+            )
+            chat_status.classes(replace="text-sm cae-muted")
 
     def update_progress_step(
         assistant_id: str,
@@ -576,6 +591,7 @@ def build_chat_panel(
                     decision = approval_decision(
                         event.approval,
                         config.workspace,
+                        yolo_mode=yolo_mode_state["enabled"],
                     )
                     if decision is ApprovalDecision.MANUAL_APPROVAL:
                         pending_approvals[event.approval.request_id] = (
@@ -593,16 +609,26 @@ def build_chat_panel(
                             event.approval.fingerprint,
                             approved=True,
                             automatic=True,
+                            automatic_detail=(
+                                "yolo_mode"
+                                if yolo_mode_state["enabled"]
+                                else "safe_policy"
+                            ),
                         )
                         update_progress_step(
                             assistant.message_id,
                             step_id=f"approval-{event.approval.request_id}",
-                            title="안전 정책으로 승인했습니다",
+                            title=(
+                                "YOLO 모드로 자동 승인했습니다"
+                                if yolo_mode_state["enabled"]
+                                else "안전 정책으로 승인했습니다"
+                            ),
                             status="completed",
                             detail=event.approval.title,
                         )
                         chat_status.set_text(
-                            f"{event.approval.risk.value}을 안전 정책으로 "
+                            f"{event.approval.risk.value}을 "
+                            f"{'YOLO 모드' if yolo_mode_state['enabled'] else '안전 정책'}으로 "
                             "자동 승인했습니다."
                         )
                         chat_status.classes(replace="text-sm text-positive")
@@ -855,44 +881,17 @@ def build_chat_panel(
         with ui.column().classes(
             "cae-chat-page w-full max-w-[1600px] mx-auto"
         ):
-            # 연결 배지를 항상 펼쳐 두면 채팅 세로 공간을 지속적으로 차지한다.
-            # 작은 고정 버튼 안의 메뉴로 옮겨 필요할 때만 상세 상태를 확인한다.
-            with ui.button(icon="hub").props(
-                "flat dense round aria-label='서비스 연결 상태'"
-            ).classes("cae-session-menu-trigger"):
-                with ui.menu().classes("cae-session-menu p-3"):
-                    ui.label("서비스 연결").classes(
-                        "font-semibold text-sm px-2 pb-1"
-                    )
-                    with ui.column().classes("gap-2 min-w-64"):
-                        codex_connection_badge = ui.badge(
-                            "Codex · 미연결",
-                            color="grey-6",
-                        ).props("outline")
-                        codex_connection_detail = ui.label(
-                            "첫 메시지를 보내면 Codex에 연결합니다."
-                        ).classes("cae-muted text-xs px-1")
-                        workbench_connection_badge = ui.badge(
-                            "Workbench · 확인 전",
-                            color="grey-6",
-                        ).props("outline")
-                        workbench_connection_detail = ui.label(
-                            "Workbench 연결을 확인합니다."
-                        ).classes("cae-muted text-xs px-1")
-                        ui.badge(
-                            "안전 작업 자동 승인",
-                            color="positive",
-                        ).props("outline")
-                        ui.button(
-                            "연결 상태 새로고침",
-                            icon="refresh",
-                            on_click=refresh_service_connections,
-                        ).props("flat dense no-caps").classes("self-end")
-                    ui.timer(
-                        0.1,
-                        refresh_service_connections,
-                        once=True,
-                    )
+            # 연결·승인 메뉴는 별도 모듈에서 만들고 채팅은 상태 갱신만 담당한다.
+            session_controls = build_session_menu(
+                ui,
+                refresh_connections=refresh_service_connections,
+                change_approval_mode=change_approval_mode,
+            )
+            codex_connection_badge = session_controls.codex_badge
+            codex_connection_detail = session_controls.codex_detail
+            workbench_connection_badge = session_controls.workbench_badge
+            workbench_connection_detail = session_controls.workbench_detail
+            approval_mode_badge = session_controls.approval_mode_badge
 
             with ui.column().classes("cae-chat-shell w-full gap-0"):
                 chat_stream = ui.column().classes(
