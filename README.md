@@ -52,6 +52,8 @@ localhost-only NiceGUI server:
 
 The dashboard can store validated CAE input files in `workspace/input`
 without overwriting existing files or automatically starting Ansys.
+Its current chat screen is an explicit mock for testing streaming, stop,
+retry, and attachment UX; it does not run Codex or Ansys yet.
 
 The dashboard displays diagnostics, session metadata, workspace usage, recent
 file names, and cleanup approval. It does not expose model-editing controls or

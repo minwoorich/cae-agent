@@ -7,12 +7,23 @@ UI는 기존 서비스 계층을 직접 호출하며 셸 명령의 텍스트 출
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import re
 from typing import Any, Callable
 
+from cae_agent.chat import (
+    ChatError,
+    ChatMessage,
+    ChatSession,
+    ChatStatus,
+    MessageDetail,
+    MessageDetailKind,
+    MessageRole,
+    mock_response_chunks,
+)
 from cae_agent.config import AppConfig, prepare_workspace
 from cae_agent.doctor import CheckResult, run_checks
 from cae_agent.workbench import workbench_paths
@@ -324,6 +335,47 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             border-color: rgba(251, 113, 133, 0.34);
             background: rgba(127, 29, 29, 0.12);
         }
+        .cae-chat-stream {
+            min-height: 420px;
+            max-height: calc(100vh - 330px);
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+        .cae-message {
+            max-width: min(820px, 92%);
+            border: 1px solid var(--cae-border);
+            border-radius: 16px;
+            padding: 1rem;
+        }
+        .cae-message-user {
+            align-self: flex-end;
+            background: rgba(56, 189, 248, 0.13);
+            border-color: rgba(56, 189, 248, 0.30);
+        }
+        .cae-message-assistant {
+            align-self: flex-start;
+            background: rgba(18, 34, 56, 0.94);
+        }
+        .cae-message-system {
+            align-self: center;
+            background: rgba(148, 163, 184, 0.08);
+        }
+        .cae-message-error {
+            align-self: flex-start;
+            background: rgba(127, 29, 29, 0.18);
+            border-color: rgba(251, 113, 133, 0.34);
+        }
+        .cae-message-body {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            line-height: 1.7;
+        }
+        .cae-composer {
+            position: sticky;
+            bottom: 0;
+            background: rgba(13, 26, 43, 0.96);
+            backdrop-filter: blur(16px);
+        }
         .q-tab-panels, .q-tab-panel {
             background: transparent !important;
         }
@@ -435,6 +487,11 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 label="개요",
                 icon="space_dashboard",
             )
+            chat_tab = ui.tab(
+                "chat",
+                label="대화",
+                icon="forum",
+            )
             files_tab = ui.tab(
                 "files",
                 label="입력 파일",
@@ -452,12 +509,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             )
         ui.separator().classes("my-5 opacity-20")
         with ui.card().classes("cae-panel p-4 gap-2"):
-            ui.icon("forum").classes("text-primary text-2xl")
-            ui.label("대화형 작업").classes("font-semibold")
+            ui.icon("science").classes("text-accent text-2xl")
+            ui.label("모의 대화 모드").classes("font-semibold")
             ui.label(
-                "Codex 채팅과 파일 첨부는 UI v0.2의 다음 단계에서 연결됩니다."
+                "현재는 채팅 흐름만 검증합니다. 실제 Codex 연결은 다음 단계입니다."
             ).classes("cae-muted text-xs leading-relaxed")
-            ui.badge("ROADMAP #43-#45", color="grey-8").props("outline")
+            ui.badge("NO CODEX EXECUTION", color="accent").props("outline")
 
     @ui.refreshable
     def overview_content() -> None:
@@ -603,24 +660,32 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     upload_feedback: Any
     attachment_summary: Any
     attachment_chips: Any
+    chat_attachment_chips: Any
     selected_inputs: set[str] = set()
+    chat_session = ChatSession()
+    chat_input: Any
+    chat_status: Any
+    send_button: Any
+    stop_button: Any
+    retry_button: Any
 
     def refresh_attachment_selection() -> None:
         """선택된 파일을 다음 채팅 단계가 사용할 첨부 목록으로 표시한다."""
         attachment_summary.set_text(
             f"채팅 첨부 준비: {len(selected_inputs)}개 선택"
         )
-        attachment_chips.clear()
-        with attachment_chips:
-            if not selected_inputs:
-                ui.label(
-                    "파일 행의 체크박스를 선택하면 여기에 표시됩니다."
-                ).classes("cae-muted text-sm")
-                return
-            for name in sorted(selected_inputs):
-                ui.chip(name, icon="attach_file").props(
-                    "outline color=primary"
-                )
+        for container in (attachment_chips, chat_attachment_chips):
+            container.clear()
+            with container:
+                if not selected_inputs:
+                    ui.label(
+                        "입력 파일 화면에서 첨부할 파일을 선택하세요."
+                    ).classes("cae-muted text-sm")
+                    continue
+                for name in sorted(selected_inputs):
+                    ui.chip(name, icon="attach_file").props(
+                        "outline color=primary"
+                    )
 
     def set_input_attachment(name: str, selected: bool) -> None:
         """입력 파일 하나를 향후 Codex 채팅 첨부 목록에 추가하거나 제거한다."""
@@ -629,6 +694,220 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         else:
             selected_inputs.discard(name)
         refresh_attachment_selection()
+
+    def update_chat_controls() -> None:
+        """현재 응답 상태에 맞춰 전송·중지·재시도 버튼을 활성화한다."""
+        if chat_session.status is ChatStatus.STREAMING:
+            send_button.disable()
+            stop_button.enable()
+            retry_button.disable()
+            chat_status.set_text("모의 응답을 스트리밍하고 있습니다.")
+            chat_status.classes(replace="text-sm text-accent")
+        else:
+            send_button.enable()
+            stop_button.disable()
+            can_retry = any(
+                message.role is MessageRole.USER
+                for message in chat_session.messages
+            )
+            if can_retry:
+                retry_button.enable()
+            else:
+                retry_button.disable()
+            state_text = {
+                ChatStatus.IDLE: "메시지를 입력할 수 있습니다.",
+                ChatStatus.STOPPED: "응답이 중지되었습니다. 다시 시도할 수 있습니다.",
+                ChatStatus.ERROR: "응답에 실패했습니다. 다시 시도할 수 있습니다.",
+            }.get(chat_session.status, "메시지를 입력할 수 있습니다.")
+            chat_status.set_text(state_text)
+            chat_status.classes(
+                replace=(
+                    "text-sm text-negative"
+                    if chat_session.status is ChatStatus.ERROR
+                    else "text-sm cae-muted"
+                )
+            )
+
+    def message_role_label(role: MessageRole) -> tuple[str, str, str]:
+        """역할별 화면 이름, 아이콘과 카드 CSS 클래스를 반환한다."""
+        return {
+            MessageRole.USER: ("사용자", "person", "cae-message-user"),
+            MessageRole.ASSISTANT: (
+                "CAE Agent · 모의 응답",
+                "smart_toy",
+                "cae-message-assistant",
+            ),
+            MessageRole.SYSTEM: (
+                "시스템",
+                "info",
+                "cae-message-system",
+            ),
+            MessageRole.ERROR: (
+                "오류",
+                "error",
+                "cae-message-error",
+            ),
+        }[role]
+
+    @ui.refreshable
+    def chat_messages() -> None:
+        """사용자·assistant·시스템·오류 메시지를 역할별 카드로 표시한다."""
+        if not chat_session.messages:
+            with ui.column().classes(
+                "w-full flex-1 items-center justify-center py-16 gap-3"
+            ):
+                ui.icon("forum").classes("text-primary text-5xl")
+                ui.label("첫 CAE 요청을 입력하세요").classes(
+                    "text-xl font-bold"
+                )
+                ui.label(
+                    "이 단계는 채팅 UI를 검증하는 모의 응답입니다. "
+                    "Codex와 Ansys는 실행하지 않습니다."
+                ).classes("cae-muted text-sm text-center max-w-xl")
+                ui.label(
+                    "예: 선택한 STEP 파일의 형상 검토 계획을 작성해줘"
+                ).classes("text-primary text-sm")
+            return
+
+        for message in chat_session.messages:
+            role_label, role_icon, message_class = message_role_label(
+                message.role
+            )
+            with ui.column().classes(
+                f"cae-message {message_class} gap-3"
+            ):
+                with ui.row().classes(
+                    "w-full items-center justify-between gap-3"
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon(role_icon).classes("text-primary")
+                        ui.label(role_label).classes("font-bold text-sm")
+                    ui.label(
+                        f"{message.created_at:%H:%M}"
+                    ).classes("cae-muted text-xs")
+                if message.attachments:
+                    with ui.row().classes("gap-2 flex-wrap"):
+                        for attachment in message.attachments:
+                            ui.chip(
+                                attachment,
+                                icon="attach_file",
+                            ).props("dense outline color=primary")
+                body = message.content
+                if (
+                    message.role is MessageRole.ASSISTANT
+                    and not body
+                    and chat_session.status is ChatStatus.STREAMING
+                ):
+                    body = "응답을 준비하고 있습니다…"
+                ui.label(body).classes("cae-message-body text-sm")
+                for detail in message.details:
+                    detail_icon = {
+                        MessageDetailKind.SCRIPT: "code",
+                        MessageDetailKind.COMMAND: "terminal",
+                        MessageDetailKind.LOG: "article",
+                    }[detail.kind]
+                    with ui.expansion(
+                        detail.title,
+                        icon=detail_icon,
+                    ).classes("w-full"):
+                        ui.code(detail.content).classes("w-full text-xs")
+
+    async def stream_mock_message(
+        assistant: ChatMessage,
+        *,
+        prompt: str,
+        attachments: tuple[str, ...],
+    ) -> None:
+        """모의 응답 조각을 누적해 실제 스트리밍과 같은 화면 상태를 만든다."""
+        try:
+            for chunk in mock_response_chunks(
+                prompt,
+                attachments=attachments,
+            ):
+                await asyncio.sleep(0.18)
+                if chat_session.status is not ChatStatus.STREAMING:
+                    return
+                chat_session.append_stream(assistant.message_id, chunk)
+                chat_messages.refresh()
+            chat_session.complete(
+                assistant.message_id,
+                details=(
+                    MessageDetail(
+                        kind=MessageDetailKind.COMMAND,
+                        title="모의 실행 상태",
+                        content=(
+                            "Codex 명령 실행 없음\n"
+                            "Ansys 명령 실행 없음\n"
+                            "모델 변경 없음"
+                        ),
+                    ),
+                    MessageDetail(
+                        kind=MessageDetailKind.LOG,
+                        title="모의 이벤트 로그",
+                        content=(
+                            "message.accepted\n"
+                            "response.streaming\n"
+                            "response.completed"
+                        ),
+                    ),
+                ),
+            )
+        except ChatError as error:
+            if chat_session.status is ChatStatus.STREAMING:
+                chat_session.fail(assistant.message_id, str(error))
+        finally:
+            chat_messages.refresh()
+            update_chat_controls()
+
+    async def send_chat_message() -> None:
+        """입력값과 선택 첨부로 새 모의 응답 스트리밍을 시작한다."""
+        prompt = str(chat_input.value or "")
+        attachments = tuple(sorted(selected_inputs))
+        try:
+            assistant = chat_session.submit(
+                prompt,
+                attachments=attachments,
+            )
+        except ChatError as error:
+            chat_status.set_text(str(error))
+            chat_status.classes(replace="text-sm text-negative")
+            return
+
+        chat_input.value = ""
+        chat_messages.refresh()
+        update_chat_controls()
+        await stream_mock_message(
+            assistant,
+            prompt=prompt,
+            attachments=attachments,
+        )
+
+    def stop_chat_message() -> None:
+        """현재 모의 스트리밍을 중지하고 이미 받은 응답은 보존한다."""
+        try:
+            chat_session.stop()
+        except ChatError as error:
+            chat_status.set_text(str(error))
+            chat_status.classes(replace="text-sm text-negative")
+        chat_messages.refresh()
+        update_chat_controls()
+
+    async def retry_chat_message() -> None:
+        """마지막 사용자 요청과 첨부를 새 모의 응답으로 다시 실행한다."""
+        try:
+            assistant = chat_session.retry_last()
+        except ChatError as error:
+            chat_status.set_text(str(error))
+            chat_status.classes(replace="text-sm text-negative")
+            return
+        user_message = chat_session.messages[-2]
+        chat_messages.refresh()
+        update_chat_controls()
+        await stream_mock_message(
+            assistant,
+            prompt=user_message.content,
+            attachments=user_message.attachments,
+        )
 
     @ui.refreshable
     def files_content() -> None:
@@ -859,6 +1138,85 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     "환경과 세션을 확인하고 다음 작업으로 이동합니다.",
                 )
                 overview_content()
+
+        with ui.tab_panel(chat_tab):
+            with ui.column().classes(
+                "cae-page w-full max-w-7xl mx-auto p-4 md:p-7 gap-5"
+            ):
+                section_heading(
+                    "CONVERSATION",
+                    "CAE Agent 대화",
+                    "현재는 메시지 흐름과 첨부 표시를 검증하는 모의 "
+                    "스트리밍입니다. Codex와 Ansys는 실행하지 않습니다.",
+                )
+                with ui.row().classes(
+                    "w-full items-center justify-between gap-3 flex-wrap"
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.badge(
+                            f"LOCAL SESSION {chat_session.session_id}",
+                            color="primary",
+                        ).props("outline")
+                        ui.badge("MOCK MODE", color="accent").props("outline")
+                    ui.button(
+                        "입력 파일 선택",
+                        icon="attach_file",
+                        on_click=lambda: navigation.set_value(files_tab),
+                    ).props("outline rounded no-caps")
+
+                with ui.card().classes("cae-panel w-full p-4 md:p-5 gap-4"):
+                    with ui.column().classes(
+                        "cae-chat-stream w-full gap-4 px-1"
+                    ):
+                        chat_messages()
+
+                    with ui.card().classes(
+                        "cae-composer cae-panel w-full p-4 gap-3"
+                    ):
+                        with ui.row().classes(
+                            "w-full items-center justify-between"
+                        ):
+                            ui.label("첨부 파일").classes(
+                                "font-bold text-sm"
+                            )
+                            ui.label(
+                                "선택 상태는 현재 UI 세션에만 유지됩니다."
+                            ).classes("cae-muted text-xs")
+                        chat_attachment_chips = ui.row().classes(
+                            "w-full gap-2 flex-wrap"
+                        )
+                        chat_input = ui.textarea(
+                            label="CAE 작업을 자연어로 입력하세요",
+                            placeholder=(
+                                "예: 선택한 STEP 파일의 형상과 단위를 "
+                                "검토할 계획을 작성해줘"
+                            ),
+                        ).props(
+                            "outlined autogrow rows=2 maxlength=4000"
+                        ).classes("w-full")
+                        chat_status = ui.label(
+                            "메시지를 입력할 수 있습니다."
+                        ).classes("cae-muted text-sm")
+                        with ui.row().classes(
+                            "w-full items-center justify-end gap-2 flex-wrap"
+                        ):
+                            retry_button = ui.button(
+                                "다시 시도",
+                                icon="replay",
+                                on_click=retry_chat_message,
+                            ).props("outline rounded no-caps")
+                            stop_button = ui.button(
+                                "응답 중지",
+                                icon="stop_circle",
+                                on_click=stop_chat_message,
+                                color="negative",
+                            ).props("outline rounded no-caps")
+                            send_button = ui.button(
+                                "전송",
+                                icon="send",
+                                on_click=send_chat_message,
+                            ).props("unelevated rounded no-caps")
+                        update_chat_controls()
 
         with ui.tab_panel(files_tab):
             with ui.column().classes(
