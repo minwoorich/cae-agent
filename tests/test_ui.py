@@ -146,6 +146,7 @@ def test_ui_source_defines_structured_information_architecture(
     """UI가 핵심 작업을 분리한 내비게이션 구조를 유지해야 한다."""
     assert "ui.left_drawer" in ui_source
     assert '"overview"' in ui_source
+    assert '"chat"' in ui_source
     assert '"files"' in ui_source
     assert '"activity"' in ui_source
     assert '"maintenance"' in ui_source
