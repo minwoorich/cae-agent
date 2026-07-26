@@ -60,6 +60,25 @@ class UIError(RuntimeError):
     """로컬 대시보드를 안전하게 구성하거나 시작할 수 없을 때의 오류."""
 
 
+# 브라우저에서 기본 줄바꿈을 먼저 막아야 Enter를 눌렀을 때 빈 줄이 잠깐
+# 나타나지 않는다. 한글 IME가 글자를 확정하는 Enter는 isComposing 또는
+# keyCode 229로 구분하며, 키를 길게 눌러 발생하는 반복 전송도 차단한다.
+CHAT_SUBMIT_KEYDOWN_JS = """
+(event) => {
+    const isPlainEnter =
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        !event.isComposing &&
+        event.keyCode !== 229 &&
+        !event.repeat;
+    if (isPlainEnter) {
+        event.preventDefault();
+        emit();
+    }
+}
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ServiceConnection:
     """UI에 표시할 로컬 서비스의 실제 연결 확인 결과."""
@@ -1864,7 +1883,11 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                                 placeholder="CAE 작업을 자연어로 입력하세요",
                             ).props(
                                 "borderless autogrow rows=1 maxlength=4000"
-                            ).classes("cae-chat-input w-full")
+                            ).classes("cae-chat-input w-full").on(
+                                "keydown",
+                                send_chat_message,
+                                js_handler=CHAT_SUBMIT_KEYDOWN_JS,
+                            )
                             with ui.row().classes(
                                 "cae-composer-actions w-full items-center "
                                 "justify-between gap-2"
