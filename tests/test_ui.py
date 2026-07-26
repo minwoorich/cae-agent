@@ -1,6 +1,7 @@
 """NiceGUI 선택 의존성과 로컬 대시보드의 읽기·승인 경계를 검증한다."""
 
 import builtins
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from cae_agent.doctor import CheckResult, CheckStatus
 from cae_agent.ui import (
     UIError,
     dashboard_snapshot,
+    input_file_summaries,
     launch_ui,
     store_input_upload,
 )
@@ -56,6 +58,33 @@ def test_dashboard_snapshot_reads_status_without_model_changes(
     assert snapshot.recent_logs == ("latest.log",)
     assert snapshot.recent_results == ("model.wbpj",)
     assert snapshot.workspace.total_file_count == 2
+
+
+def test_input_file_summaries_return_safe_recent_metadata(
+    tmp_path: Path,
+) -> None:
+    """입력 라이브러리는 절대 경로 없이 크기·형식·시각 메타데이터를 반환해야 한다."""
+    input_directory = tmp_path / "input"
+    input_directory.mkdir()
+    older = input_directory / "older.step"
+    newer = input_directory / "최신모델.scdoc"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new-data")
+    older.touch()
+    newer.touch()
+    older_mtime = older.stat().st_mtime - 60
+    os.utime(older, (older_mtime, older_mtime))
+
+    summaries = input_file_summaries(input_directory)
+
+    assert [item.name for item in summaries] == [
+        "최신모델.scdoc",
+        "older.step",
+    ]
+    assert summaries[0].extension == ".scdoc"
+    assert summaries[0].size_bytes == 8
+    assert summaries[0].modified_at.tzinfo is not None
+    assert all(str(tmp_path) not in item.name for item in summaries)
 
 
 def test_launch_ui_uses_localhost_and_requested_browser_mode(
