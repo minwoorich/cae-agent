@@ -181,8 +181,8 @@ def test_ui_source_keeps_preview_and_approval_separate(
     assert "input과 results는 삭제하지 않습니다" in ui_source
     assert 'target.open("xb")' in ui_source
     assert "store_input_upload" in ui_source
-    assert "workspace/input에 새로 저장되며 기존 파일을" in ui_source
-    assert "덮어쓰거나 Ansys를 자동 실행하지 않습니다" in ui_source
+    assert "파일 종류는 자동 구분하며 첨부만으로 실행하지 않습니다" in ui_source
+    assert "파일 첨부 또는 드래그앤드롭" in ui_source
 
 
 def test_ui_source_defines_structured_information_architecture(
@@ -192,7 +192,7 @@ def test_ui_source_defines_structured_information_architecture(
     assert "ui.left_drawer" in ui_source
     assert '"overview"' in ui_source
     assert '"chat"' in ui_source
-    assert '"files"' in ui_source
+    assert 'ui.tab(\n                "files"' not in ui_source
     assert "LOCAL SESSION" not in ui_source
     assert "Codex · 미연결" in ui_source
     assert "Workbench · 확인 전" in ui_source
