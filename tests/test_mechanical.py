@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.config import load_config
-from cae_agent.mechanical import (
+from cae_agent.core.config import load_config
+from cae_agent.ansys.mechanical import (
     MechanicalError,
     MechanicalSession,
     connect_mechanical,

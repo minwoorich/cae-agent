@@ -8,19 +8,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from cae_agent.attachments import classify_attachment
-from cae_agent.approval import ApprovalRequest, ApprovalRisk
-from cae_agent.chat import (
+from cae_agent.agent.attachments import classify_attachment
+from cae_agent.security.approval import ApprovalRequest, ApprovalRisk
+from cae_agent.agent.chat import (
     ChatError, ChatMessage, ChatSession, ChatStatus,
     MessageDetail, MessageDetailKind, MessageRole,
 )
-from cae_agent.codex_app_server import CodexAppServerClient, CodexAppServerError
-from cae_agent.config import AppConfig
-from cae_agent.ui_files import (
+from cae_agent.agent.codex_app_server import CodexAppServerClient, CodexAppServerError
+from cae_agent.core.config import AppConfig
+from cae_agent.ui.files import (
     MAX_UPLOAD_SIZE_BYTES, PendingUploadReplacement, UIError, UploadConflict,
     format_bytes as _format_bytes, replace_input_upload, store_input_upload,
 )
-from cae_agent.write_policy import ApprovalDecision, approval_decision
+from cae_agent.security.write_policy import ApprovalDecision, approval_decision
 
 
 CHAT_SUBMIT_KEYDOWN_JS = """

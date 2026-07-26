@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cae_agent.attachments import AttachmentKind, classify_attachment
-from cae_agent.approval import (
+from cae_agent.agent.attachments import AttachmentKind, classify_attachment
+from cae_agent.security.approval import (
     ApprovalRequest,
     append_approval_audit,
     build_approval_request,

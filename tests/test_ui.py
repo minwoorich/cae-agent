@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from cae_agent.config import load_config, prepare_workspace
-from cae_agent.doctor import CheckResult, CheckStatus
+from cae_agent.core.config import load_config, prepare_workspace
+from cae_agent.core.doctor import CheckResult, CheckStatus
 from cae_agent.ui import (
     UploadConflict,
     UIError,
@@ -25,15 +25,15 @@ from cae_agent.ui import (
 def ui_source() -> str:
     """분리된 UI 모듈 전체를 안전 경계 검사용 단일 문자열로 반환한다."""
     ui_directory = (
-        Path(__file__).resolve().parents[1] / "src" / "cae_agent"
+        Path(__file__).resolve().parents[1] / "src" / "cae_agent" / "ui"
     )
     return "\n".join(
         (ui_directory / filename).read_text(encoding="utf-8")
         for filename in (
-            "ui.py",
-            "ui_chat.py",
-            "ui_files.py",
-            "ui_styles.py",
+            "dashboard.py",
+            "chat.py",
+            "files.py",
+            "styles.py",
         )
     )
 
@@ -90,19 +90,19 @@ def test_workbench_probe_requires_real_ping(
     session_file = tmp_path / "session.json"
     session_file.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
-        "cae_agent.ui.workbench_paths",
+        "cae_agent.ui.dashboard.workbench_paths",
         lambda _config: SimpleNamespace(session_file=session_file),
     )
     monkeypatch.setattr(
-        "cae_agent.ui.load_session",
+        "cae_agent.ui.dashboard.load_session",
         lambda _path: SimpleNamespace(server_version="261"),
     )
     monkeypatch.setattr(
-        "cae_agent.ui.connect_session",
+        "cae_agent.ui.dashboard.connect_session",
         lambda _config: object(),
     )
     monkeypatch.setattr(
-        "cae_agent.ui.ping_session",
+        "cae_agent.ui.dashboard.ping_session",
         lambda _workbench: "project.wbpj",
     )
 
@@ -153,7 +153,7 @@ def test_launch_ui_uses_localhost_and_requested_browser_mode(
 
     fake_ui = SimpleNamespace(run=fake_run)
     monkeypatch.setattr(
-        "cae_agent.ui.build_dashboard",
+        "cae_agent.ui.dashboard.build_dashboard",
         lambda _config, *, ui_module: calls.update({"built": ui_module}),
     )
 
@@ -380,7 +380,7 @@ def test_store_input_upload_rejects_empty_and_oversized_content(
 ) -> None:
     """의미 없는 빈 파일과 서버 제한을 넘는 파일은 저장 전에 거부해야 한다."""
     config = load_config(current_directory=tmp_path)
-    monkeypatch.setattr("cae_agent.ui_files.MAX_UPLOAD_SIZE_BYTES", 4)
+    monkeypatch.setattr("cae_agent.ui.files.MAX_UPLOAD_SIZE_BYTES", 4)
 
     with pytest.raises(UIError, match="빈 파일"):
         store_input_upload(config, filename="empty.csv", content=b"")

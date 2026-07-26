@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from cae_agent.config import AppConfig, prepare_workspace
+from cae_agent.core.config import AppConfig, prepare_workspace
 
 
 class WorkbenchError(RuntimeError):

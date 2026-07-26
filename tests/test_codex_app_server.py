@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.codex_app_server import (
+from cae_agent.agent.codex_app_server import (
     CodexAppServerClient,
     CodexAppServerError,
     CodexStreamEvent,

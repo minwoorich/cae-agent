@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from cae_agent.approval import (
+from cae_agent.security.approval import (
     ApprovalRisk,
     append_approval_audit,
     build_approval_request,

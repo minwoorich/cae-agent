@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.agents import GeneratedScript
-from cae_agent.config import load_config
-from cae_agent.repair import RepairError, run_repair_loop
+from cae_agent.agent.providers import GeneratedScript
+from cae_agent.core.config import load_config
+from cae_agent.agent.repair import RepairError, run_repair_loop
 
 
 class FakeProvider:

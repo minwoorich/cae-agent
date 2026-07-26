@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.config import load_config
-from cae_agent.spaceclaim import (
+from cae_agent.core.config import load_config
+from cae_agent.ansys.spaceclaim import (
     SpaceClaimError,
     build_workbench_journal,
     create_wrapper_script,

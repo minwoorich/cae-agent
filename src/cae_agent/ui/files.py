@@ -14,11 +14,11 @@ import re
 from typing import Callable
 from uuid import uuid4
 
-from cae_agent.attachments import SUPPORTED_ATTACHMENT_EXTENSIONS
-from cae_agent.config import AppConfig, prepare_workspace
-from cae_agent.doctor import CheckResult, run_checks
-from cae_agent.workbench import workbench_paths
-from cae_agent.workspace import WorkspaceStatus, workspace_status
+from cae_agent.agent.attachments import SUPPORTED_ATTACHMENT_EXTENSIONS
+from cae_agent.core.config import AppConfig, prepare_workspace
+from cae_agent.core.doctor import CheckResult, run_checks
+from cae_agent.ansys.workbench import workbench_paths
+from cae_agent.core.workspace import WorkspaceStatus, workspace_status
 
 
 class UIError(RuntimeError):

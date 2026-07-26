@@ -9,8 +9,10 @@ def test_source_modules_stay_below_one_thousand_lines() -> None:
         Path(__file__).resolve().parents[1] / "src" / "cae_agent"
     )
     oversized = {
-        path.name: len(path.read_text(encoding="utf-8").splitlines())
-        for path in source_directory.glob("*.py")
+        str(path.relative_to(source_directory)): len(
+            path.read_text(encoding="utf-8").splitlines()
+        )
+        for path in source_directory.rglob("*.py")
         if len(path.read_text(encoding="utf-8").splitlines()) > 1_000
     }
 
