@@ -10,11 +10,13 @@ import pytest
 from cae_agent.config import load_config, prepare_workspace
 from cae_agent.doctor import CheckResult, CheckStatus
 from cae_agent.ui import (
+    UploadConflict,
     UIError,
     dashboard_snapshot,
     input_file_summaries,
     launch_ui,
     probe_workbench_connection,
+    replace_input_upload,
     store_input_upload,
 )
 
@@ -235,10 +237,10 @@ def test_store_input_upload_creates_only_new_allowed_file(
     assert stored.size_bytes == 9
 
 
-def test_store_input_upload_never_overwrites_existing_input(
+def test_duplicate_upload_requires_explicit_replacement(
     tmp_path: Path,
 ) -> None:
-    """같은 이름의 원본 입력이 있으면 내용을 바꾸지 않고 업로드를 거부해야 한다."""
+    """중복 업로드는 기존 파일을 유지한 채 교체 승인 스냅숏을 반환해야 한다."""
     config = load_config(current_directory=tmp_path)
     first = store_input_upload(
         config,
@@ -246,7 +248,7 @@ def test_store_input_upload_never_overwrites_existing_input(
         content=b"original",
     )
 
-    with pytest.raises(UIError, match="이미 있습니다"):
+    with pytest.raises(UploadConflict, match="이미 있습니다") as conflict:
         store_input_upload(
             config,
             filename="package.scdoc",
@@ -254,6 +256,33 @@ def test_store_input_upload_never_overwrites_existing_input(
         )
 
     assert first.path.read_bytes() == b"original"
+    pending = conflict.value.pending
+    replaced = replace_input_upload(config, pending)
+    assert replaced.path.read_bytes() == b"replacement"
+    audit = config.workspace.logs_dir / "upload-replacements.jsonl"
+    assert '"event": "input_replaced"' in audit.read_text(encoding="utf-8")
+
+
+def test_replacement_is_invalidated_when_original_changes(tmp_path: Path) -> None:
+    """모달 표시 뒤 기존 파일이 바뀌면 이전 교체 승인을 사용할 수 없어야 한다."""
+    config = load_config(current_directory=tmp_path)
+    original = store_input_upload(
+        config,
+        filename="package.step",
+        content=b"original",
+    )
+    with pytest.raises(UploadConflict) as conflict:
+        store_input_upload(
+            config,
+            filename="package.step",
+            content=b"replacement",
+        )
+    original.path.write_bytes(b"changed-after-preview")
+
+    with pytest.raises(UIError, match="기존 파일이 변경"):
+        replace_input_upload(config, conflict.value.pending)
+
+    assert original.path.read_bytes() == b"changed-after-preview"
 
 
 @pytest.mark.parametrize(
