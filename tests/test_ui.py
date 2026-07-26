@@ -8,7 +8,12 @@ import pytest
 
 from cae_agent.config import load_config, prepare_workspace
 from cae_agent.doctor import CheckResult, CheckStatus
-from cae_agent.ui import UIError, dashboard_snapshot, launch_ui
+from cae_agent.ui import (
+    UIError,
+    dashboard_snapshot,
+    launch_ui,
+    store_input_upload,
+)
 
 
 def test_dashboard_snapshot_reads_status_without_model_changes(
@@ -93,6 +98,10 @@ def test_ui_source_keeps_preview_and_approval_separate() -> None:
     assert "preview_paths != current_paths" in source
     assert 'host="127.0.0.1"' in source
     assert "input과 results는 삭제하지 않습니다" in source
+    assert 'target.open("xb")' in source
+    assert "store_input_upload" in source
+    assert "파일은 workspace/input에만 저장됩니다" in source
+    assert "실행하거나 기존 모델을 변경하지 않습니다" in source
 
 
 def test_missing_nicegui_reports_optional_install(
@@ -111,3 +120,111 @@ def test_missing_nicegui_reports_optional_install(
     monkeypatch.setattr(builtins, "__import__", fail_nicegui)
     with pytest.raises(UIError, match=r"\.\[ui\]"):
         launch_ui(config)
+
+
+def test_store_input_upload_creates_only_new_allowed_file(
+    tmp_path: Path,
+) -> None:
+    """허용된 새 입력 파일은 workspace/input 내부에 원문 그대로 저장해야 한다."""
+    config = load_config(current_directory=tmp_path)
+
+    stored = store_input_upload(
+        config,
+        filename="전력모듈.step",
+        content=b"STEP DATA",
+    )
+
+    assert stored.path == config.workspace.input_dir / "전력모듈.step"
+    assert stored.path.read_bytes() == b"STEP DATA"
+    assert stored.size_bytes == 9
+
+
+def test_store_input_upload_never_overwrites_existing_input(
+    tmp_path: Path,
+) -> None:
+    """같은 이름의 원본 입력이 있으면 내용을 바꾸지 않고 업로드를 거부해야 한다."""
+    config = load_config(current_directory=tmp_path)
+    first = store_input_upload(
+        config,
+        filename="package.scdoc",
+        content=b"original",
+    )
+
+    with pytest.raises(UIError, match="이미 있습니다"):
+        store_input_upload(
+            config,
+            filename="package.scdoc",
+            content=b"replacement",
+        )
+
+    assert first.path.read_bytes() == b"original"
+
+
+@pytest.mark.parametrize(
+    ("filename", "message"),
+    [
+        ("../escape.step", "폴더 경로"),
+        (r"folder\\escape.step", "폴더 경로"),
+        ("solver.exe", "허용되지 않은"),
+        ("CON.step", "예약 이름"),
+        ("trailing.step.", "끝 공백"),
+    ],
+)
+def test_store_input_upload_rejects_unsafe_names_and_extensions(
+    tmp_path: Path,
+    filename: str,
+    message: str,
+) -> None:
+    """경로 탈출, 실행 파일과 Windows 특수 파일명은 서버에서 차단해야 한다."""
+    config = load_config(current_directory=tmp_path)
+
+    with pytest.raises(UIError, match=message):
+        store_input_upload(config, filename=filename, content=b"data")
+
+    assert not config.workspace.input_dir.exists()
+
+
+def test_store_input_upload_rejects_empty_and_oversized_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """의미 없는 빈 파일과 서버 제한을 넘는 파일은 저장 전에 거부해야 한다."""
+    config = load_config(current_directory=tmp_path)
+    monkeypatch.setattr("cae_agent.ui.MAX_UPLOAD_SIZE_BYTES", 4)
+
+    with pytest.raises(UIError, match="빈 파일"):
+        store_input_upload(config, filename="empty.csv", content=b"")
+    with pytest.raises(UIError, match="이하여야"):
+        store_input_upload(
+            config,
+            filename="large.step",
+            content=b"12345",
+        )
+
+    assert not config.workspace.input_dir.exists()
+
+
+def test_store_input_upload_rejects_symlinked_input_directory(
+    tmp_path: Path,
+) -> None:
+    """입력 폴더가 외부를 가리키는 링크라면 작업공간 이탈 저장을 차단해야 한다."""
+    config = load_config(current_directory=tmp_path)
+    external = tmp_path / "external"
+    external.mkdir()
+    config.workspace.root.mkdir()
+    try:
+        config.workspace.input_dir.symlink_to(
+            external,
+            target_is_directory=True,
+        )
+    except OSError:
+        pytest.skip("현재 Windows 환경에서 심볼릭 링크를 만들 권한이 없습니다.")
+
+    with pytest.raises(UIError, match="심볼릭 링크"):
+        store_input_upload(
+            config,
+            filename="model.step",
+            content=b"data",
+        )
+
+    assert not (external / "model.step").exists()
