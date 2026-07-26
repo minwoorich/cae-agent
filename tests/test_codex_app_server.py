@@ -62,7 +62,7 @@ async def wait_for_writes(process: FakeProcess, count: int) -> None:
     raise AssertionError(f"예상한 JSONL 요청 {count}개가 기록되지 않았습니다.")
 
 
-def test_start_and_stream_turn_use_read_only_protocol(
+def test_start_and_stream_turn_use_approval_protocol(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """초기화부터 텍스트 델타와 완료까지 순서가 유지되는지 확인한다."""
@@ -145,17 +145,17 @@ async def _start_and_stream_turn_use_read_only_protocol(
     await client.close()
 
 
-def test_approval_request_is_declined(
+def test_approval_request_waits_for_explicit_decision(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """승인 UI가 없는 단계에서는 명령 실행 요청을 자동 거절한다."""
-    asyncio.run(_approval_request_is_declined(monkeypatch, tmp_path))
+    """명령은 UI 결정을 받기 전 실행 응답을 보내지 않아야 한다."""
+    asyncio.run(_approval_request_waits_for_explicit_decision(monkeypatch, tmp_path))
 
 
-async def _approval_request_is_declined(
+async def _approval_request_waits_for_explicit_decision(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """동기 pytest 환경에서 실행할 비동기 승인 거절 검증 본문."""
+    """동기 pytest 환경에서 실행할 비동기 승인 대기 검증 본문."""
     process = FakeProcess()
     client = CodexAppServerClient(tmp_path)
     client.process = process  # type: ignore[assignment]
@@ -165,12 +165,24 @@ async def _approval_request_is_declined(
         {
             "id": 77,
             "method": "item/commandExecution/requestApproval",
-            "params": {},
+            "params": {
+                "itemId": "command-1",
+                "turnId": "turn-1",
+                "command": "cae-agent workbench status",
+                "cwd": str(tmp_path),
+            },
         },
     )
-    await asyncio.sleep(0)
+    event = await asyncio.wait_for(client._events.get(), timeout=1)
+    approval = event["params"]["approval"]
+    assert process.stdin.lines == []
+    await client.resolve_approval(
+        approval.request_id,
+        approval.fingerprint,
+        approved=True,
+    )
     assert process.stdin.lines == [
-        {"id": 77, "result": {"decision": "decline"}}
+        {"id": 77, "result": {"decision": "accept"}}
     ]
     await client.close()
 

@@ -18,6 +18,7 @@ from cae_agent.attachments import (
     SUPPORTED_ATTACHMENT_EXTENSIONS,
     classify_attachment,
 )
+from cae_agent.approval import ApprovalRequest, ApprovalRisk
 from cae_agent.chat import (
     ChatError,
     ChatMessage,
@@ -546,12 +547,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         ui.separator().classes("my-5 opacity-20")
         with ui.card().classes("cae-panel p-4 gap-2"):
             ui.icon("science").classes("text-accent text-2xl")
-            ui.label("Codex 읽기 전용 연결").classes("font-semibold")
+            ui.label("Codex 승인 기반 실행").classes("font-semibold")
             ui.label(
-                "실제 Codex와 대화하지만 명령 실행과 파일 변경은 "
-                "승인 화면이 추가될 때까지 차단됩니다."
+                "명령 실행과 파일 변경은 승인 카드에서 확인한 "
+                "정확한 요청 한 건만 허용됩니다."
             ).classes("cae-muted text-xs leading-relaxed")
-            ui.badge("SAFE READ ONLY", color="positive").props("outline")
+            ui.badge("APPROVAL REQUIRED", color="accent").props("outline")
 
     @ui.refreshable
     def overview_content() -> None:
@@ -699,7 +700,11 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     selected_inputs: set[str] = set()
     chat_session = ChatSession()
     # 브라우저 세션마다 대화 문맥과 App Server 프로세스를 분리한다.
-    codex_client = CodexAppServerClient(Path.cwd())
+    codex_client = CodexAppServerClient(
+        Path.cwd(),
+        audit_path=config.workspace.logs_dir / "codex-approvals.jsonl",
+    )
+    pending_approvals: dict[int, ApprovalRequest] = {}
     # 사용자가 탭을 닫으면 해당 브라우저 세션의 자식 프로세스도 종료한다.
     # 테스트용 UI 대역에는 context가 없을 수 있으므로 실제 NiceGUI에서만 등록한다.
     if hasattr(ui, "context") and hasattr(ui.context, "client"):
@@ -892,6 +897,73 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     ).classes("w-full"):
                         ui.code(detail.content).classes("w-full text-xs")
 
+    async def decide_approval(
+        request: ApprovalRequest,
+        *,
+        approved: bool,
+    ) -> None:
+        """카드에 표시된 동일 승인 요청을 승인하거나 거절한다."""
+        try:
+            await codex_client.resolve_approval(
+                request.request_id,
+                request.fingerprint,
+                approved=approved,
+            )
+        except CodexAppServerError as error:
+            chat_status.set_text(str(error))
+            chat_status.classes(replace="text-sm text-negative")
+        finally:
+            pending_approvals.pop(request.request_id, None)
+            approval_cards.refresh()
+
+    @ui.refreshable
+    def approval_cards() -> None:
+        """Codex가 실제 실행 전에 보낸 승인 요청을 위험도별 카드로 표시한다."""
+        for request in pending_approvals.values():
+            color = {
+                ApprovalRisk.CREATE: "primary",
+                ApprovalRisk.MODIFY: "accent",
+                ApprovalRisk.EXECUTE: "warning",
+                ApprovalRisk.DELETE: "negative",
+            }[request.risk]
+            with ui.card().classes(
+                "cae-panel cae-danger w-full p-4 gap-3"
+            ):
+                with ui.row().classes(
+                    "w-full items-center justify-between gap-3"
+                ):
+                    ui.label(request.title).classes("font-bold")
+                    ui.badge(request.risk.value, color=color).props("outline")
+                ui.label(f"대상: {request.target}").classes("text-sm")
+                ui.label(request.reason).classes("cae-muted text-sm")
+                with ui.expansion(
+                    "명령·변경 미리보기",
+                    icon="preview",
+                ).classes("w-full"):
+                    ui.code(request.preview).classes("w-full text-xs")
+                ui.label(
+                    "이 승인은 표시된 요청 한 건에만 유효합니다. 대상이나 "
+                    "내용이 바뀌면 다시 승인해야 합니다."
+                ).classes("cae-muted text-xs")
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button(
+                        "거절",
+                        icon="block",
+                        on_click=lambda _request=request: decide_approval(
+                            _request,
+                            approved=False,
+                        ),
+                    ).props("outline rounded no-caps color=negative")
+                    ui.button(
+                        "이 작업 승인",
+                        icon="verified_user",
+                        on_click=lambda _request=request: decide_approval(
+                            _request,
+                            approved=True,
+                        ),
+                        color=color,
+                    ).props("unelevated rounded no-caps")
+
     async def stream_codex_message(
         assistant: ChatMessage,
         *,
@@ -918,6 +990,13 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         event.text,
                     )
                     chat_messages.refresh()
+                elif event.kind == "approval" and event.approval is not None:
+                    pending_approvals[event.approval.request_id] = event.approval
+                    approval_cards.refresh()
+                    chat_status.set_text(
+                        "Codex 작업이 사용자 승인을 기다리고 있습니다."
+                    )
+                    chat_status.classes(replace="text-sm text-accent")
             chat_session.complete(
                 assistant.message_id,
                 details=(
@@ -926,10 +1005,9 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         title="현재 안전 모드",
                         content=(
                             "Codex App Server 연결됨\n"
-                            "작업공간 읽기 전용\n"
-                            "명령·파일 변경 승인 자동 거절\n"
-                            "Ansys 명령 실행 없음\n"
-                            "모델 변경 없음"
+                            "작업공간 쓰기: 사용자 승인 필요\n"
+                            "명령·파일 변경: 일회성 승인\n"
+                            "광범위 권한 요청: 자동 거절"
                         ),
                     ),
                     MessageDetail(
@@ -1183,8 +1261,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 section_heading(
                     "CONVERSATION",
                     "CAE Agent 대화",
-                    "로컬 Codex App Server와 실제로 대화합니다. 현재 단계는 "
-                    "읽기 전용이며 명령 실행과 파일 변경은 승인되지 않습니다.",
+                    "로컬 Codex App Server와 실제로 대화합니다. 명령 실행과 "
+                    "파일 변경은 화면에 표시된 요청을 승인해야 진행됩니다.",
                 )
                 with ui.card().classes(
                     "cae-panel w-full p-4 gap-3"
@@ -1220,8 +1298,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                                 "실제 Workbench ping을 아직 확인하지 않았습니다."
                             ).classes("cae-muted text-xs")
                     ui.label(
-                        "Codex는 현재 읽기 전용입니다. 이는 Workbench 연결 상태와 "
-                        "별개의 실행 권한입니다."
+                        "Codex 실행 권한은 승인 카드로 제어하며 Workbench 연결 "
+                        "상태와는 별개입니다."
                     ).classes("cae-muted text-xs")
                     ui.timer(
                         0.1,
@@ -1234,6 +1312,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         "cae-chat-stream w-full gap-4 px-1"
                     ):
                         chat_messages()
+                        approval_cards()
 
                     with ui.card().classes(
                         "cae-composer cae-panel w-full p-4 gap-3"
