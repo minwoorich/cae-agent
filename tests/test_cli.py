@@ -117,3 +117,36 @@ def test_run_agent_passes_execution_approval(
     )
     assert received["approve_execution"] is True
     assert '"success": true' in capsys.readouterr().out
+
+
+def test_workspace_clean_passes_retention_and_approval(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CLI가 보존 기간과 실제 삭제 승인을 서비스 계층에 정확히 전달한다."""
+    received: dict[str, object] = {}
+    monkeypatch.setattr("cae_agent.cli.load_config", lambda _file: object())
+
+    def fake_clean(_config, **kwargs):
+        received.update(kwargs)
+        return SimpleNamespace(
+            failures=(),
+            to_json=lambda: '{"approved": true}',
+        )
+
+    monkeypatch.setattr("cae_agent.cli.clean_workspace", fake_clean)
+    assert (
+        main(
+            [
+                "workspace",
+                "clean",
+                "--older-than",
+                "14",
+                "--approve",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert received == {"older_than_days": 14, "approve": True}
+    assert '"approved": true' in capsys.readouterr().out

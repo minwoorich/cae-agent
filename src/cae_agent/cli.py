@@ -43,6 +43,13 @@ from cae_agent.workbench import (
     serve_session,
     workbench_paths,
 )
+from cae_agent.workspace import (
+    WorkspaceError,
+    clean_workspace,
+    render_cleanup_result,
+    render_workspace_status,
+    workspace_status,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -113,6 +120,57 @@ def build_parser() -> argparse.ArgumentParser:
         "--prepare",
         action="store_true",
         help="출력 전에 정의된 작업공간 폴더를 생성합니다.",
+    )
+
+    workspace_parser = subparsers.add_parser(
+        "workspace",
+        help="작업공간 사용량을 확인하고 오래된 안전 산출물을 정리합니다.",
+    )
+    workspace_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    workspace_subparsers = workspace_parser.add_subparsers(
+        dest="workspace_command",
+        required=True,
+    )
+    workspace_status_parser = workspace_subparsers.add_parser(
+        "status",
+        help="폴더별 파일 수, 사용량과 세션 메타데이터를 조회합니다.",
+    )
+    workspace_status_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="작업공간 상태를 자동화용 JSON 형식으로 출력합니다.",
+    )
+    workspace_clean_parser = workspace_subparsers.add_parser(
+        "clean",
+        help="오래된 생성본·로그·Codex 임시 파일의 정리 후보를 계산합니다.",
+        description=(
+            "기본 동작은 파일을 변경하지 않는 dry-run입니다. input과 results는 "
+            "항상 제외되며 실제 삭제에는 --approve가 필요합니다."
+        ),
+    )
+    workspace_clean_parser.add_argument(
+        "--older-than",
+        type=int,
+        default=30,
+        metavar="DAYS",
+        help="수정 후 지정 일수가 지난 파일만 후보로 선택합니다. 기본값: 30",
+    )
+    workspace_clean_parser.add_argument(
+        "--approve",
+        action="store_true",
+        help="표시된 안전 후보를 실제로 삭제하는 데 명시적으로 동의합니다.",
+    )
+    workspace_clean_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="정리 계획 또는 결과를 자동화용 JSON 형식으로 출력합니다.",
     )
 
     workbench_parser = subparsers.add_parser(
@@ -352,6 +410,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             else render_config_text(config)
         )
         return 0
+
+    if args.command == "workspace":
+        try:
+            config = load_config(args.config_file)
+            if args.workspace_command == "status":
+                result = workspace_status(config)
+                print(
+                    result.to_json()
+                    if args.json_output
+                    else render_workspace_status(result)
+                )
+                return 0
+            if args.workspace_command == "clean":
+                result = clean_workspace(
+                    config,
+                    older_than_days=args.older_than,
+                    approve=args.approve,
+                )
+                print(
+                    result.to_json()
+                    if args.json_output
+                    else render_cleanup_result(result)
+                )
+                return 1 if result.failures else 0
+        except (ConfigError, WorkspaceError, OSError) as error:
+            parser.error(str(error))
 
     if args.command == "workbench":
         try:
