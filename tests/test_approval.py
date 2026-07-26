@@ -7,6 +7,7 @@ from cae_agent.approval import (
     ApprovalRisk,
     append_approval_audit,
     build_approval_request,
+    requires_manual_approval,
 )
 
 
@@ -40,6 +41,44 @@ def test_changed_target_has_different_fingerprint() -> None:
     )
 
     assert first.fingerprint != changed.fingerprint
+
+
+def test_routine_and_file_change_are_auto_approved() -> None:
+    """반복적인 일반 명령과 비파괴 파일 변경은 승인 대기를 만들지 않는다."""
+    routine = build_approval_request(
+        10,
+        "item/commandExecution/requestApproval",
+        {"itemId": "status", "command": "git status --short"},
+    )
+    file_change = build_approval_request(
+        11,
+        "item/fileChange/requestApproval",
+        {"itemId": "file", "reason": "새 문서 내용을 수정합니다."},
+    )
+
+    assert routine.risk is ApprovalRisk.ROUTINE
+    assert requires_manual_approval(routine) is False
+    assert requires_manual_approval(file_change) is False
+
+
+def test_cae_execution_and_delete_still_require_manual_approval() -> None:
+    """해석 실행과 삭제는 자동 승인 정책에서 제외해야 한다."""
+    solve = build_approval_request(
+        12,
+        "item/commandExecution/requestApproval",
+        {
+            "itemId": "solve",
+            "command": "cae-agent mechanical run-script solve.py",
+        },
+    )
+    delete = build_approval_request(
+        13,
+        "item/commandExecution/requestApproval",
+        {"itemId": "delete", "command": "Remove-Item model.wbpj"},
+    )
+
+    assert requires_manual_approval(solve) is True
+    assert requires_manual_approval(delete) is True
 
 
 def test_audit_log_is_append_only_jsonl(tmp_path: Path) -> None:

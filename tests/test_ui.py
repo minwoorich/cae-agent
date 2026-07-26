@@ -201,6 +201,10 @@ def test_ui_source_defines_structured_information_architecture(
     assert ".q-dialog__backdrop" in ui_source
     assert "background: rgba(2, 6, 23, 0.86)" in ui_source
     assert "cae-dialog-card cae-danger" in ui_source
+    assert "cae-chat-page" in ui_source
+    assert "cae-chat-statusbar" in ui_source
+    assert "Codex가 응답을 생성하고 있습니다" in ui_source
+    assert "안전 작업 자동 승인" in ui_source
     assert '"activity"' in ui_source
     assert '"maintenance"' in ui_source
 
