@@ -272,6 +272,70 @@ def test_missing_codex_has_korean_recovery_message(
     asyncio.run(_missing_codex_has_korean_recovery_message(monkeypatch, tmp_path))
 
 
+def test_file_change_approval_uses_paths_from_started_item(
+    tmp_path: Path,
+) -> None:
+    """grantRoot가 없어도 선행 fileChange 항목의 generated 경로를 복원해야 한다."""
+    client = CodexAppServerClient(tmp_path)
+    client._remember_file_change_targets(
+        {
+            "method": "item/started",
+            "params": {
+                "item": {
+                    "id": "change-1",
+                    "type": "fileChange",
+                    "changes": [
+                        {
+                            "path": "generated/simplify.py",
+                            "kind": {"type": "add"},
+                        },
+                        {
+                            "path": "generated/settings.toml",
+                            "kind": {"type": "add"},
+                        },
+                    ],
+                }
+            },
+        }
+    )
+
+    normalized = client._approval_params_with_known_target(
+        "item/fileChange/requestApproval",
+        {"itemId": "change-1", "reason": "스크립트 작성"},
+    )
+
+    assert normalized["grantRoot"] == str((tmp_path / "generated").resolve())
+
+
+def test_file_change_approval_keeps_mixed_paths_ambiguous(
+    tmp_path: Path,
+) -> None:
+    """변경 목록에 보호 경로가 하나라도 섞이면 generated 권한으로 축소하지 않는다."""
+    client = CodexAppServerClient(tmp_path)
+    client._remember_file_change_targets(
+        {
+            "method": "item/started",
+            "params": {
+                "item": {
+                    "id": "change-2",
+                    "type": "fileChange",
+                    "changes": [
+                        {"path": "generated/simplify.py"},
+                        {"path": "input/original.scdoc"},
+                    ],
+                }
+            },
+        }
+    )
+
+    normalized = client._approval_params_with_known_target(
+        "item/fileChange/requestApproval",
+        {"itemId": "change-2", "reason": "혼합 변경"},
+    )
+
+    assert "grantRoot" not in normalized
+
+
 async def _missing_codex_has_korean_recovery_message(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -145,6 +145,10 @@ class CodexAppServerClient:
         self._reader_task: asyncio.Task[None] | None = None
         self._approvals: dict[int, ApprovalRequest] = {}
         self._approved_items: dict[str, ApprovalRequest] = {}
+        # fileChange 승인 요청에는 실제 경로가 생략될 수 있다. App Server가
+        # 직전에 보낸 item/started의 changes를 itemId별로 잠시 보관해 승인
+        # 정책이 모호한 "현재 작업공간" 대신 실제 변경 경로를 검사하게 한다.
+        self._file_change_targets: dict[str, tuple[str, ...]] = {}
 
     @property
     def connected(self) -> bool:
@@ -202,10 +206,11 @@ class CodexAppServerClient:
                     "sandbox": "read-only",
                     "developerInstructions": (
                         "사용자에게 한국어로 답하세요. 이 디렉터리는 사용자별 "
-                        "CAE 작업공간입니다. 새 Python 자동화 스크립트는 반드시 "
-                        "generated 폴더 안에만 작성하고 input 원본, results, logs, "
-                        ".runtime 및 작업공간 밖 파일은 변경하지 마세요. 명령 "
-                        "실행이나 파일 변경은 반드시 App Server 승인 요청을 "
+                        "CAE 작업공간입니다. 새 Python 자동화 스크립트와 모델 "
+                        "사본은 반드시 generated 폴더 안에만 작성하고 input "
+                        "원본, results, logs, .runtime 및 작업공간 밖 파일은 "
+                        "변경하지 마세요. generated 파일 변경은 App Server의 "
+                        "파일 변경 승인을 사용하고, CAE 실행은 명령 실행 승인을 "
                         "사용하세요. CAE Agent CLI가 필요하면 현재 디렉터리에서 "
                         f"반드시 `{sys.executable} -m cae_agent`를 명령 앞에 "
                         "사용하세요. SpaceClaim과 Mechanical 스크립트의 모든 "
@@ -413,6 +418,7 @@ class CodexAppServerClient:
                     message = json.loads(line)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
+                self._remember_file_change_targets(message)
                 request_id = message.get("id")
                 if request_id in self._pending and "method" not in message:
                     future = self._pending[request_id]
@@ -428,10 +434,14 @@ class CodexAppServerClient:
                     "item/commandExecution/requestApproval",
                     "item/fileChange/requestApproval",
                 }:
+                    params = self._approval_params_with_known_target(
+                        str(message["method"]),
+                        message.get("params") or {},
+                    )
                     approval = build_approval_request(
                         int(request_id),
                         str(message["method"]),
-                        message.get("params") or {},
+                        params,
                     )
                     self._approvals[int(request_id)] = approval
                     self._audit(approval, "requested")
@@ -458,6 +468,10 @@ class CodexAppServerClient:
                 elif "method" in message:
                     if message.get("method") == "item/completed":
                         item = (message.get("params") or {}).get("item") or {}
+                        self._file_change_targets.pop(
+                            str(item.get("id") or ""),
+                            None,
+                        )
                         approved = self._approved_items.pop(
                             str(item.get("id") or ""),
                             None,
@@ -476,6 +490,46 @@ class CodexAppServerClient:
                 "Codex App Server가 예기치 않게 종료되었습니다. "
                 "`codex login status`를 확인한 뒤 다시 시도해 주세요."
             )
+
+    def _remember_file_change_targets(self, message: dict[str, Any]) -> None:
+        """fileChange 시작 알림에서 App Server가 공개한 변경 경로만 보관한다."""
+        if message.get("method") != "item/started":
+            return
+        item = (message.get("params") or {}).get("item") or {}
+        if item.get("type") != "fileChange":
+            return
+        targets = tuple(
+            str(change.get("path") or "")
+            for change in item.get("changes") or ()
+            if isinstance(change, dict) and str(change.get("path") or "").strip()
+        )
+        if targets:
+            self._file_change_targets[str(item.get("id") or "")] = targets
+
+    def _approval_params_with_known_target(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """grantRoot가 없을 때 모든 실제 변경이 generated인지 보수적으로 판정한다."""
+        if method != "item/fileChange/requestApproval" or params.get("grantRoot"):
+            return params
+        targets = self._file_change_targets.get(str(params.get("itemId") or ""))
+        if not targets:
+            return params
+
+        generated_root = (self.workspace / "generated").resolve()
+        for target_text in targets:
+            target = Path(target_text).expanduser()
+            if not target.is_absolute():
+                target = self.workspace / target
+            target = target.resolve(strict=False)
+            if target != generated_root and generated_root not in target.parents:
+                return params
+
+        normalized = dict(params)
+        normalized["grantRoot"] = str(generated_root)
+        return normalized
 
     def _fail_pending(self, message: str) -> None:
         """아직 끝나지 않은 요청에 동일한 연결 종료 오류를 전달한다."""
