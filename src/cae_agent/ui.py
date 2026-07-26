@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any, Callable
 
-from cae_agent.config import AppConfig
+from cae_agent.config import AppConfig, prepare_workspace
 from cae_agent.doctor import CheckResult, run_checks
 from cae_agent.workbench import workbench_paths
 from cae_agent.workspace import (
@@ -25,6 +26,41 @@ from cae_agent.workspace import (
 
 class UIError(RuntimeError):
     """로컬 대시보드를 안전하게 구성하거나 시작할 수 없을 때의 오류."""
+
+
+ALLOWED_UPLOAD_EXTENSIONS = frozenset(
+    {
+        ".csv",
+        ".iges",
+        ".igs",
+        ".json",
+        ".mechdat",
+        ".scdoc",
+        ".step",
+        ".stp",
+        ".txt",
+        ".wbpj",
+    }
+)
+MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class StoredUpload:
+    """검증을 통과해 입력 작업공간에 새로 저장된 파일 정보."""
+
+    path: Path
+    size_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +123,60 @@ def _format_bytes(value: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{value} B"
+
+
+def store_input_upload(
+    config: AppConfig,
+    *,
+    filename: str,
+    content: bytes,
+) -> StoredUpload:
+    """업로드 파일을 검증하고 기존 파일을 건드리지 않은 채 원자적으로 저장한다.
+
+    브라우저의 파일 선택 제한은 우회될 수 있으므로 파일명, 확장자와 크기를
+    서버에서 다시 검사한다. ``xb`` 모드로 새 파일만 생성해 동시에 같은 이름이
+    업로드되더라도 기존 사용자 입력을 덮어쓰지 않는다.
+    """
+    if not filename or Path(filename).name != filename:
+        raise UIError("파일명에는 폴더 경로나 상위 경로를 포함할 수 없습니다.")
+    if "/" in filename or "\\" in filename:
+        raise UIError("파일명에는 경로 구분자를 포함할 수 없습니다.")
+    if filename.endswith((" ", ".")) or re.search(r"[\x00-\x1f]", filename):
+        raise UIError("파일명에 제어 문자나 끝 공백·마침표를 사용할 수 없습니다.")
+    if Path(filename).stem.upper() in _WINDOWS_RESERVED_NAMES:
+        raise UIError("Windows 예약 이름은 파일명으로 사용할 수 없습니다.")
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_UPLOAD_EXTENSIONS))
+        raise UIError(f"허용되지 않은 파일 형식입니다. 허용 형식: {allowed}")
+    if not content:
+        raise UIError("빈 파일은 업로드할 수 없습니다.")
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise UIError(
+            "파일 크기는 "
+            f"{_format_bytes(MAX_UPLOAD_SIZE_BYTES)} 이하여야 합니다."
+        )
+
+    prepare_workspace(config.workspace)
+    input_directory = config.workspace.input_dir
+    if input_directory.is_symlink():
+        raise UIError("입력 폴더가 심볼릭 링크이므로 업로드를 차단했습니다.")
+
+    target = input_directory / filename
+    if target.is_symlink():
+        raise UIError("같은 이름의 심볼릭 링크가 있어 업로드를 차단했습니다.")
+    try:
+        with target.open("xb") as stream:
+            stream.write(content)
+    except FileExistsError as error:
+        raise UIError(
+            f"같은 이름의 입력 파일이 이미 있습니다: {filename}"
+        ) from error
+    except OSError as error:
+        raise UIError(f"입력 파일을 저장할 수 없습니다: {error}") from error
+
+    return StoredUpload(path=target, size_bytes=len(content))
 
 
 def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
@@ -196,6 +286,52 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         candidate_box = ui.column().classes(
             "w-full max-h-72 overflow-auto border rounded p-3"
         )
+
+        ui.separator().classes("my-2")
+        ui.label("CAE 입력 파일").classes("font-bold text-xl")
+        ui.label(
+            "파일은 workspace/input에만 저장됩니다. 업로드만으로 Ansys를 "
+            "실행하거나 기존 모델을 변경하지 않습니다."
+        ).classes("text-sm text-grey-7")
+        upload_feedback = ui.label(
+            "STEP, IGES, SpaceClaim, Workbench, Mechanical, CSV, JSON, "
+            "TXT 파일을 최대 100 MiB까지 업로드할 수 있습니다."
+        ).classes("text-sm text-grey-7")
+
+        async def handle_upload(event: Any) -> None:
+            """NiceGUI 임시 업로드를 읽어 검증된 입력 파일로 저장한다."""
+            try:
+                content = await event.file.read()
+                stored = store_input_upload(
+                    config,
+                    filename=event.file.name,
+                    content=content,
+                )
+            except (OSError, UIError) as error:
+                upload_feedback.set_text(f"업로드 실패: {error}")
+                upload_feedback.classes(replace="text-sm text-negative")
+            else:
+                upload_feedback.set_text(
+                    f"업로드 완료: {stored.path.name} · "
+                    f"{_format_bytes(stored.size_bytes)} · "
+                    "이 파일을 사용할 CAE 작업은 Codex에 별도로 요청하세요."
+                )
+                upload_feedback.classes(replace="text-sm text-positive")
+                dashboard_content.refresh()
+
+        ui.upload(
+            label="CAE 입력 파일 선택",
+            on_upload=handle_upload,
+            on_rejected=lambda: upload_feedback.set_text(
+                "업로드 거부: 파일 하나당 최대 100 MiB까지 선택할 수 있습니다."
+            ),
+            multiple=False,
+            auto_upload=True,
+            max_file_size=MAX_UPLOAD_SIZE_BYTES,
+        ).props(
+            'accept=".step,.stp,.iges,.igs,.scdoc,.wbpj,.mechdat,'
+            '.csv,.json,.txt"'
+        ).classes("w-full max-w-2xl")
 
         with ui.dialog() as approval_dialog, ui.card().classes("min-w-96"):
             ui.label("작업공간 파일 삭제 승인").classes(
