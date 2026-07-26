@@ -98,7 +98,13 @@ async def _start_and_stream_turn_use_read_only_protocol(
     async def collect() -> list[tuple[str, str]]:
         return [
             (event.kind, event.text or event.status)
-            async for event in client.stream_turn("열해석 계획을 알려줘")
+            async for event in client.stream_turn(
+                "열해석 계획을 알려줘",
+                attachments=(
+                    tmp_path / "thermal.png",
+                    tmp_path / "package.step",
+                ),
+            )
         ]
 
     stream_task = asyncio.create_task(collect())
@@ -130,6 +136,12 @@ async def _start_and_stream_turn_use_read_only_protocol(
     thread_params = process.stdin.lines[2]["params"]
     assert thread_params["sandbox"] == "read-only"
     assert thread_params["approvalPolicy"] == "on-request"
+    turn_input = process.stdin.lines[3]["params"]["input"]
+    assert turn_input[1] == {
+        "type": "localImage",
+        "path": str((tmp_path / "thermal.png").resolve()),
+    }
+    assert "[CAD/형상]" in turn_input[2]["text"]
     await client.close()
 
 

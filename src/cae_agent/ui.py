@@ -14,6 +14,10 @@ from pathlib import Path
 import re
 from typing import Any, Callable
 
+from cae_agent.attachments import (
+    SUPPORTED_ATTACHMENT_EXTENSIONS,
+    classify_attachment,
+)
 from cae_agent.chat import (
     ChatError,
     ChatMessage,
@@ -90,20 +94,7 @@ def probe_workbench_connection(config: AppConfig) -> ServiceConnection:
     )
 
 
-ALLOWED_UPLOAD_EXTENSIONS = frozenset(
-    {
-        ".csv",
-        ".iges",
-        ".igs",
-        ".json",
-        ".mechdat",
-        ".scdoc",
-        ".step",
-        ".stp",
-        ".txt",
-        ".wbpj",
-    }
-)
+ALLOWED_UPLOAD_EXTENSIONS = SUPPORTED_ATTACHMENT_EXTENSIONS
 MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024
 _WINDOWS_RESERVED_NAMES = frozenset(
     {
@@ -542,11 +533,6 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 label="대화",
                 icon="forum",
             )
-            files_tab = ui.tab(
-                "files",
-                label="입력 파일",
-                icon="upload_file",
-            )
             activity_tab = ui.tab(
                 "activity",
                 label="로그와 결과",
@@ -593,9 +579,9 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             )
             with ui.row().classes("cae-actions w-full gap-3"):
                 ui.button(
-                    "입력 파일 업로드",
-                    icon="upload_file",
-                    on_click=lambda: navigation.set_value(files_tab),
+                    "채팅에서 파일 첨부",
+                    icon="attach_file",
+                    on_click=lambda: navigation.set_value(chat_tab),
                 ).props("unelevated rounded no-caps")
                 ui.button(
                     "상태 새로고침",
@@ -709,8 +695,6 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         ui.label(check.message).classes("cae-muted text-sm")
 
     upload_feedback: Any
-    attachment_summary: Any
-    attachment_chips: Any
     chat_attachment_chips: Any
     selected_inputs: set[str] = set()
     chat_session = ChatSession()
@@ -765,21 +749,23 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
 
     def refresh_attachment_selection() -> None:
         """선택된 파일을 다음 채팅 단계가 사용할 첨부 목록으로 표시한다."""
-        attachment_summary.set_text(
-            f"채팅 첨부 준비: {len(selected_inputs)}개 선택"
-        )
-        for container in (attachment_chips, chat_attachment_chips):
-            container.clear()
-            with container:
-                if not selected_inputs:
-                    ui.label(
-                        "입력 파일 화면에서 첨부할 파일을 선택하세요."
-                    ).classes("cae-muted text-sm")
-                    continue
-                for name in sorted(selected_inputs):
-                    ui.chip(name, icon="attach_file").props(
-                        "outline color=primary"
-                    )
+        chat_attachment_chips.clear()
+        with chat_attachment_chips:
+            if not selected_inputs:
+                ui.label(
+                    "이미지나 CAE 모델 파일을 바로 첨부할 수 있습니다."
+                ).classes("cae-muted text-sm")
+                return
+            for name in sorted(selected_inputs):
+                kind = classify_attachment(name)
+                ui.chip(
+                    f"{kind.value} · {name}",
+                    icon="image" if kind.value == "이미지" else "attach_file",
+                    removable=True,
+                    on_value_change=lambda event, filename=name: (
+                        set_input_attachment(filename, bool(event.value))
+                    ),
+                ).props("outline color=primary")
 
     def set_input_attachment(name: str, selected: bool) -> None:
         """입력 파일 하나를 향후 Codex 채팅 첨부 목록에 추가하거나 제거한다."""
@@ -980,6 +966,10 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             return
 
         chat_input.value = ""
+        # 첨부는 일반 채팅 앱처럼 현재 메시지에만 사용한다. 재시도에 필요한
+        # 파일명은 이미 ChatMessage에 복사됐으므로 선택 목록만 안전하게 비운다.
+        selected_inputs.clear()
+        refresh_attachment_selection()
         chat_messages.refresh()
         update_chat_controls()
         await stream_codex_message(
@@ -1015,67 +1005,6 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             prompt=user_message.content,
             attachments=user_message.attachments,
         )
-
-    @ui.refreshable
-    def files_content() -> None:
-        """업로드된 입력의 메타데이터와 채팅 첨부 선택을 나열한다."""
-        try:
-            snapshot = dashboard_snapshot(config)
-        except (OSError, WorkspaceError) as error:
-            ui.label(f"입력 파일 조회 실패: {error}").classes("text-negative")
-            return
-        available_names = {item.name for item in snapshot.recent_inputs}
-        selected_inputs.intersection_update(available_names)
-        with ui.card().classes("cae-panel w-full p-5 gap-2"):
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label("입력 파일 라이브러리").classes("font-bold text-lg")
-                ui.badge(
-                    f"{len(snapshot.recent_inputs)}개 표시",
-                    color="primary",
-                ).props("outline")
-            if not snapshot.recent_inputs:
-                with ui.column().classes("items-center w-full py-8 gap-2"):
-                    ui.icon("draft").classes("text-3xl cae-muted")
-                    ui.label(
-                        "아직 업로드한 입력 파일이 없습니다."
-                    ).classes("cae-muted text-sm")
-            for item in snapshot.recent_inputs:
-                with ui.row().classes(
-                    "cae-file-row w-full items-center justify-between "
-                    "gap-3 no-wrap"
-                ):
-                    with ui.row().classes(
-                        "items-center gap-3 min-w-0 no-wrap"
-                    ):
-                        ui.checkbox(
-                            value=item.name in selected_inputs,
-                            on_change=(
-                                lambda event, name=item.name:
-                                set_input_attachment(name, bool(event.value))
-                            ),
-                        ).props("dense color=primary")
-                        ui.icon("description").classes(
-                            "text-primary text-2xl"
-                        )
-                        with ui.column().classes("gap-0 min-w-0"):
-                            ui.label(item.name).classes(
-                                "font-medium truncate max-w-md"
-                            )
-                            ui.label(
-                                f"{item.modified_at:%Y-%m-%d %H:%M} · "
-                                f"{_format_bytes(item.size_bytes)}"
-                            ).classes("cae-muted text-xs")
-                    with ui.column().classes("items-end gap-1"):
-                        ui.badge(item.extension).props(
-                            "outline color=grey-6"
-                        )
-                        state_text = (
-                            "첨부 선택됨"
-                            if item.name in selected_inputs
-                            else "사용 가능"
-                        )
-                        ui.label(state_text).classes("cae-muted text-xs")
-        refresh_attachment_selection()
 
     @ui.refreshable
     def activity_content() -> None:
@@ -1119,14 +1048,15 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             upload_feedback.classes(replace="text-sm text-negative")
         else:
             selected_inputs.add(stored.path.name)
+            kind = classify_attachment(stored.path)
             upload_feedback.set_text(
-                f"업로드 완료: {stored.path.name} · "
+                f"첨부 완료: {kind.value} · {stored.path.name} · "
                 f"{_format_bytes(stored.size_bytes)} · "
-                "채팅 첨부 목록에 자동으로 선택했습니다."
+                "다음 메시지에 전달됩니다."
             )
             upload_feedback.classes(replace="text-sm text-positive")
-            files_content.refresh()
             overview_content.refresh()
+        refresh_attachment_selection()
 
     feedback: Any
     retention: Any
@@ -1256,15 +1186,6 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     "로컬 Codex App Server와 실제로 대화합니다. 현재 단계는 "
                     "읽기 전용이며 명령 실행과 파일 변경은 승인되지 않습니다.",
                 )
-                with ui.row().classes(
-                    "w-full items-center justify-between gap-3 flex-wrap"
-                ):
-                    ui.button(
-                        "입력 파일 선택",
-                        icon="attach_file",
-                        on_click=lambda: navigation.set_value(files_tab),
-                    ).props("outline rounded no-caps")
-
                 with ui.card().classes(
                     "cae-panel w-full p-4 gap-3"
                 ):
@@ -1324,8 +1245,27 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                                 "font-bold text-sm"
                             )
                             ui.label(
-                                "선택 상태는 현재 UI 세션에만 유지됩니다."
+                                "파일 종류는 자동 구분하며 첨부만으로 실행하지 않습니다."
                             ).classes("cae-muted text-xs")
+                        upload_feedback = ui.label(
+                            "이미지나 CAE 모델 파일을 선택하거나 끌어놓으세요."
+                        ).classes("cae-muted text-sm")
+                        ui.upload(
+                            label="파일 첨부 또는 드래그앤드롭",
+                            on_upload=handle_upload,
+                            on_rejected=lambda: upload_feedback.set_text(
+                                "첨부 거부: 지원 형식과 파일 크기를 확인해 주세요."
+                            ),
+                            multiple=True,
+                            auto_upload=True,
+                            max_file_size=MAX_UPLOAD_SIZE_BYTES,
+                            max_files=10,
+                            max_total_size=500 * 1024 * 1024,
+                        ).props(
+                            'accept=".png,.jpg,.jpeg,.webp,.bmp,.step,.stp,'
+                            '.iges,.igs,.scdoc,.wbpj,.mechdat,.csv,.json,.txt" '
+                            "flat bordered"
+                        ).classes("w-full")
                         chat_attachment_chips = ui.row().classes(
                             "w-full gap-2 flex-wrap"
                         )
@@ -1361,76 +1301,6 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                                 on_click=send_chat_message,
                             ).props("unelevated rounded no-caps")
                         update_chat_controls()
-
-        with ui.tab_panel(files_tab):
-            with ui.column().classes(
-                "cae-page w-full max-w-7xl mx-auto p-4 md:p-7 gap-5"
-            ):
-                section_heading(
-                    "INPUT LIBRARY",
-                    "CAE 입력 파일",
-                    "원본 파일은 workspace/input에 새로 저장되며 기존 파일을 "
-                    "덮어쓰거나 Ansys를 자동 실행하지 않습니다.",
-                )
-                with ui.card().classes(
-                    "cae-panel cae-upload w-full p-5 md:p-7 gap-4"
-                ):
-                    with ui.row().classes("items-center gap-3"):
-                        ui.icon("cloud_upload").classes(
-                            "text-primary text-3xl"
-                        )
-                        with ui.column().classes("gap-0"):
-                            ui.label(
-                                "파일을 끌어놓거나 선택해 안전하게 보관"
-                            ).classes(
-                                "font-bold text-lg"
-                            )
-                            ui.label(
-                                "STEP, IGES, SpaceClaim, Workbench, "
-                                "Mechanical, CSV, JSON, TXT · 최대 100 MiB"
-                            ).classes("cae-muted text-sm")
-                    upload_feedback = ui.label(
-                        "업로드 후 실제 CAE 작업은 Codex에 별도로 요청하세요."
-                    ).classes("cae-muted text-sm")
-                    ui.upload(
-                        label="CAE 입력 파일 선택 또는 드래그앤드롭",
-                        on_upload=handle_upload,
-                        on_rejected=lambda: upload_feedback.set_text(
-                            "업로드 거부: 파일 하나당 최대 100 MiB까지 "
-                            "선택할 수 있습니다."
-                        ),
-                        multiple=True,
-                        auto_upload=True,
-                        max_file_size=MAX_UPLOAD_SIZE_BYTES,
-                        max_files=10,
-                        max_total_size=500 * 1024 * 1024,
-                    ).props(
-                        'accept=".step,.stp,.iges,.igs,.scdoc,.wbpj,'
-                        '.mechdat,.csv,.json,.txt" flat bordered'
-                    ).classes("w-full")
-                with ui.card().classes("cae-panel w-full p-5 gap-3"):
-                    with ui.row().classes(
-                        "w-full items-center justify-between gap-3"
-                    ):
-                        with ui.row().classes("items-center gap-3"):
-                            ui.icon("attach_file").classes(
-                                "text-primary text-2xl"
-                            )
-                            with ui.column().classes("gap-0"):
-                                ui.label("채팅 첨부 준비").classes(
-                                    "font-bold text-lg"
-                                )
-                                ui.label(
-                                    "선택은 현재 UI 세션에만 유지되며 다음 "
-                                    "채팅 단계에서 Codex 요청에 전달됩니다."
-                                ).classes("cae-muted text-xs")
-                        attachment_summary = ui.label(
-                            "채팅 첨부 준비: 0개 선택"
-                        ).classes("text-sm font-medium")
-                    attachment_chips = ui.row().classes(
-                        "w-full gap-2 flex-wrap"
-                    )
-                files_content()
 
         with ui.tab_panel(activity_tab):
             with ui.column().classes(

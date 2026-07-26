@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cae_agent.attachments import AttachmentKind, classify_attachment
+
 
 class CodexAppServerError(RuntimeError):
     """사용자가 조치할 수 있는 한글 설명으로 변환된 App Server 오류."""
@@ -136,9 +138,16 @@ class CodexAppServerClient:
         assert self.thread_id is not None
 
         inputs: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-        if attachments:
+        non_image_attachments: list[Path] = []
+        for path in attachments:
+            if classify_attachment(path) is AttachmentKind.IMAGE:
+                inputs.append({"type": "localImage", "path": str(path.resolve())})
+            else:
+                non_image_attachments.append(path)
+        if non_image_attachments:
             attachment_lines = "\n".join(
-                f"- {path.resolve()}" for path in attachments
+                f"- [{classify_attachment(path).value}] {path.resolve()}"
+                for path in non_image_attachments
             )
             inputs.append(
                 {
