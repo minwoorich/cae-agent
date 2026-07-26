@@ -200,6 +200,11 @@ async def _start_and_stream_turn_use_read_only_protocol(
     thread_params = process.stdin.lines[2]["params"]
     assert thread_params["sandbox"] == "read-only"
     assert thread_params["approvalPolicy"] == "on-request"
+    assert thread_params["cwd"] == str(tmp_path.resolve())
+    assert "generated 폴더 안에만 작성" in thread_params[
+        "developerInstructions"
+    ]
+    assert "-m cae_agent" in thread_params["developerInstructions"]
     turn_input = process.stdin.lines[3]["params"]["input"]
     assert turn_input[1] == {
         "type": "localImage",

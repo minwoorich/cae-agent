@@ -23,7 +23,6 @@ from cae_agent.attachments import (
 from cae_agent.approval import (
     ApprovalRequest,
     ApprovalRisk,
-    requires_manual_approval,
 )
 from cae_agent.chat import (
     ChatError,
@@ -54,6 +53,7 @@ from cae_agent.workspace import (
     clean_workspace,
     workspace_status,
 )
+from cae_agent.write_policy import ApprovalDecision, approval_decision
 
 
 class UIError(RuntimeError):
@@ -924,7 +924,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     chat_session = ChatSession()
     # 브라우저 세션마다 대화 문맥과 App Server 프로세스를 분리한다.
     codex_client = CodexAppServerClient(
-        Path.cwd(),
+        config.workspace.root,
         audit_path=config.workspace.logs_dir / "codex-approvals.jsonl",
     )
     pending_approvals: dict[int, ApprovalRequest] = {}
@@ -1433,7 +1433,11 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         status="running",
                         detail=event.approval.title,
                     )
-                    if requires_manual_approval(event.approval):
+                    decision = approval_decision(
+                        event.approval,
+                        config.workspace,
+                    )
+                    if decision is ApprovalDecision.MANUAL_APPROVAL:
                         pending_approvals[event.approval.request_id] = (
                             event.approval
                         )
@@ -1443,7 +1447,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                             "위험 작업이 사용자 승인을 기다리고 있습니다."
                         )
                         chat_status.classes(replace="text-sm text-accent")
-                    else:
+                    elif decision is ApprovalDecision.AUTO_APPROVE:
                         await codex_client.resolve_approval(
                             event.approval.request_id,
                             event.approval.fingerprint,
@@ -1462,6 +1466,25 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                             "자동 승인했습니다."
                         )
                         chat_status.classes(replace="text-sm text-positive")
+                    else:
+                        await codex_client.resolve_approval(
+                            event.approval.request_id,
+                            event.approval.fingerprint,
+                            approved=False,
+                            automatic=True,
+                        )
+                        update_progress_step(
+                            assistant.message_id,
+                            step_id=f"approval-{event.approval.request_id}",
+                            title="보호된 경로 변경을 차단했습니다",
+                            status="failed",
+                            detail=event.approval.target,
+                        )
+                        chat_status.set_text(
+                            "핵심 소스와 보호된 작업공간 경로의 변경을 "
+                            "안전 정책으로 차단했습니다."
+                        )
+                        chat_status.classes(replace="text-sm text-negative")
                     chat_messages.refresh()
             chat_session.complete(
                 assistant.message_id,

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -200,8 +201,16 @@ class CodexAppServerClient:
                     # 요청 한 건에만 일회성으로 허용한다.
                     "sandbox": "read-only",
                     "developerInstructions": (
-                        "사용자에게 한국어로 답하세요. 명령 실행이나 파일 변경은 "
-                        "반드시 App Server 승인 요청을 통해 사용자 확인을 받으세요."
+                        "사용자에게 한국어로 답하세요. 이 디렉터리는 사용자별 "
+                        "CAE 작업공간입니다. 새 Python 자동화 스크립트는 반드시 "
+                        "generated 폴더 안에만 작성하고 input 원본, results, logs, "
+                        ".runtime 및 작업공간 밖 파일은 변경하지 마세요. 명령 "
+                        "실행이나 파일 변경은 반드시 App Server 승인 요청을 "
+                        "사용하세요. CAE Agent CLI가 필요하면 현재 디렉터리에서 "
+                        f"반드시 `{sys.executable} -m cae_agent`를 명령 앞에 "
+                        "사용하세요. SpaceClaim과 Mechanical 스크립트의 모든 "
+                        "주석과 docstring은 자세한 한국어로 작성하고, 원본 모델을 "
+                        "덮어쓰지 말고 새 결과 경로를 사용하세요."
                     ),
                 },
             )
@@ -329,7 +338,11 @@ class CodexAppServerClient:
         event = (
             "auto_approved"
             if approved and automatic
-            else ("approved" if approved else "declined")
+            else (
+                "auto_declined"
+                if not approved and automatic
+                else ("approved" if approved else "declined")
+            )
         )
         self._audit(request, event)
 
