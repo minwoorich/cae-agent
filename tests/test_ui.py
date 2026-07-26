@@ -33,6 +33,7 @@ def ui_source() -> str:
             "dashboard.py",
             "chat.py",
             "files.py",
+            "session_menu.py",
             "styles.py",
         )
     )
@@ -266,7 +267,10 @@ def test_ui_source_defines_structured_information_architecture(
     assert "height: calc(100dvh - 64px)" in ui_source
     assert "min-height: 680px" not in ui_source
     assert "Codex가 응답을 생성하고 있습니다" in ui_source
-    assert "안전 작업 자동 승인" in ui_source
+    assert "YOLO 모드" in ui_source
+    assert "yolo_mode=yolo_mode_state" in ui_source
+    assert "새로고침하면 " in ui_source
+    assert "확인 모드로 돌아옵니다." in ui_source
     assert '"activity"' in ui_source
     assert '"maintenance"' in ui_source
 

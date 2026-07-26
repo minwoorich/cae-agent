@@ -318,8 +318,9 @@ class CodexAppServerClient:
         *,
         approved: bool,
         automatic: bool = False,
+        automatic_detail: str = "",
     ) -> None:
-        """화면에 표시한 동일 요청에 한해서만 일회성 승인 결과를 보낸다."""
+        """동일 요청에 일회성 결과를 보내고 자동 승인 근거까지 감사 기록한다."""
         request = self._approvals.pop(request_id, None)
         if request is None:
             raise CodexAppServerError("이미 처리됐거나 만료된 승인 요청입니다.")
@@ -344,7 +345,7 @@ class CodexAppServerClient:
                 else ("approved" if approved else "declined")
             )
         )
-        self._audit(request, event)
+        self._audit(request, event, automatic_detail if automatic else "")
 
     async def interrupt(self) -> None:
         """현재 응답이 진행 중이면 App Server에 중단 요청을 보낸다."""

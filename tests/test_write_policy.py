@@ -96,6 +96,41 @@ def test_execution_still_requires_manual_approval(tmp_path: Path) -> None:
     ) is ApprovalDecision.MANUAL_APPROVAL
 
 
+@pytest.mark.parametrize("risk", [ApprovalRisk.EXECUTE, ApprovalRisk.DELETE])
+def test_yolo_mode_auto_approves_dangerous_requests(
+    tmp_path: Path,
+    risk: ApprovalRisk,
+) -> None:
+    """YOLO 모드는 실행과 삭제 요청을 승인 카드 없이 자동 처리해야 한다."""
+    workspace = WorkspaceConfig(tmp_path / "workspace")
+
+    assert approval_decision(
+        request(
+            risk=risk,
+            target=str(workspace.root),
+            method="item/commandExecution/requestApproval",
+        ),
+        workspace,
+        yolo_mode=True,
+    ) is ApprovalDecision.AUTO_APPROVE
+
+
+def test_yolo_mode_cannot_override_protected_file_boundary(
+    tmp_path: Path,
+) -> None:
+    """YOLO를 켜도 소스와 업로드 원본의 직접 파일 변경은 허용하지 않는다."""
+    workspace = WorkspaceConfig(tmp_path / "workspace")
+
+    assert approval_decision(
+        request(
+            risk=ApprovalRisk.DELETE,
+            target=str(workspace.input_dir / "original.step"),
+        ),
+        workspace,
+        yolo_mode=True,
+    ) is ApprovalDecision.DENY
+
+
 def test_routine_read_only_command_is_auto_approved(tmp_path: Path) -> None:
     """상태 조회 같은 일반 명령은 기존의 끊김 없는 채팅 흐름을 유지해야 한다."""
     workspace = WorkspaceConfig(tmp_path / "workspace")

@@ -226,7 +226,8 @@ async def _approval_request_waits_for_explicit_decision(
 ) -> None:
     """동기 pytest 환경에서 실행할 비동기 승인 대기 검증 본문."""
     process = FakeProcess()
-    client = CodexAppServerClient(tmp_path)
+    audit_path = tmp_path / "logs" / "codex-approvals.jsonl"
+    client = CodexAppServerClient(tmp_path, audit_path=audit_path)
     client.process = process  # type: ignore[assignment]
     client._reader_task = asyncio.create_task(client._read_messages())
     feed(
@@ -249,10 +250,18 @@ async def _approval_request_waits_for_explicit_decision(
         approval.request_id,
         approval.fingerprint,
         approved=True,
+        automatic=True,
+        automatic_detail="yolo_mode",
     )
     assert process.stdin.lines == [
         {"id": 77, "result": {"decision": "accept"}}
     ]
+    audit_records = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert audit_records[-1]["event"] == "auto_approved"
+    assert audit_records[-1]["detail"] == "yolo_mode"
     await client.close()
 
 
