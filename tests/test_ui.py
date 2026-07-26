@@ -219,6 +219,9 @@ def test_ui_source_keeps_chat_session_during_navigation_and_shows_progress(
     # Codex 종료는 브라우저 연결 종료에만 묶고 탭 변경 이벤트에는 연결하지 않는다.
     assert "on_disconnect(codex_client.close)" in ui_source
     assert "on_change=codex_client.close" not in ui_source
+    assert "CodexAppServerClient(\n        config.workspace.root," in ui_source
+    assert "approval_decision(" in ui_source
+    assert "보호된 경로 변경을 차단했습니다" in ui_source
 
 
 def test_ui_source_submits_with_enter_and_preserves_shift_enter(
