@@ -189,6 +189,30 @@ AI 생성·수정 실행:
 `.runtime`에는 비밀 토큰을 저장하지 않지만 로컬 포트와 경로가 포함될 수 있으므로
 Issue에 그대로 첨부하지 마세요.
 
+작업공간이 얼마나 커졌는지는 다음 명령으로 확인합니다.
+
+```powershell
+.\.venv\Scripts\cae-agent.exe workspace status
+```
+
+오래된 생성 스크립트, 로그와 Codex 임시 파일의 정리 후보는 기본 dry-run으로
+확인할 수 있습니다. 다음 명령은 어떤 파일도 삭제하지 않습니다.
+
+```powershell
+.\.venv\Scripts\cae-agent.exe workspace clean --older-than 30
+```
+
+목록과 용량을 확인한 뒤 실제 삭제에 동의하는 경우에만 `--approve`를
+추가합니다. `workspace/input`과 `workspace/results`는 보존 기간과 관계없이
+자동 정리 대상에서 제외됩니다. 실행 중이거나 종료가 확인되지 않은 Workbench
+또는 Mechanical 세션 정보가 있으면 실제 정리가 차단됩니다.
+
+```powershell
+.\.venv\Scripts\cae-agent.exe workspace clean `
+  --older-than 30 `
+  --approve
+```
+
 ## 8. 종료와 다음 단계
 
 작업을 마치면 Workbench 브리지를 정상 종료합니다.

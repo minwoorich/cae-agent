@@ -71,3 +71,23 @@ Mechanical 연결 전에 Workbench 세션과 대상 시스템이 존재해야 �
 
 두 번째 명령의 `--approve-execution`은 사용자가 AI 생성 코드 실행을
 명시적으로 승인한 경우에만 사용할 수 있다.
+
+## 작업공간 상태와 정리
+
+```powershell
+.\.venv\Scripts\cae-agent.exe workspace status
+.\.venv\Scripts\cae-agent.exe workspace status --json
+.\.venv\Scripts\cae-agent.exe workspace clean --older-than 30
+```
+
+세 번째 명령은 기본 dry-run이며 파일을 삭제하지 않는다. 후보 목록과 용량을
+사용자에게 설명하고 실제 삭제 승인을 받은 경우에만 다음을 실행한다.
+
+```powershell
+.\.venv\Scripts\cae-agent.exe workspace clean `
+  --older-than 30 `
+  --approve
+```
+
+`input`과 `results`는 항상 자동 정리에서 제외된다. 활성 세션 메타데이터가
+있으면 실제 정리를 강행하지 말고 Workbench와 Mechanical을 정상 종료한다.

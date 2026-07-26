@@ -35,6 +35,11 @@ See the [Codex-first Korean guide](docs/codex-first.ko.md) for complete
 conversation examples. Direct PowerShell commands below remain available for
 manual operation and debugging.
 
+Codex can also report accumulated workspace usage and preview retention-based
+cleanup without deleting files. Actual cleanup requires a separate explicit
+approval, never includes `workspace/input` or `workspace/results`, and is
+blocked while session metadata is present.
+
 ## Development setup
 
 Python 3.11 or newer is required.
