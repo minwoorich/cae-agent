@@ -7,6 +7,7 @@ UI는 기존 서비스 계층을 직접 호출하며 셸 명령의 텍스트 출
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,13 @@ from cae_agent.codex_app_server import (
 )
 from cae_agent.config import AppConfig, prepare_workspace
 from cae_agent.doctor import CheckResult, run_checks
-from cae_agent.workbench import workbench_paths
+from cae_agent.workbench import (
+    WorkbenchError,
+    connect_session,
+    load_session,
+    ping_session,
+    workbench_paths,
+)
 from cae_agent.workspace import (
     CleanupResult,
     WorkspaceError,
@@ -40,6 +47,47 @@ from cae_agent.workspace import (
 
 class UIError(RuntimeError):
     """로컬 대시보드를 안전하게 구성하거나 시작할 수 없을 때의 오류."""
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceConnection:
+    """UI에 표시할 로컬 서비스의 실제 연결 확인 결과."""
+
+    connected: bool
+    label: str
+    detail: str
+
+
+def probe_workbench_connection(config: AppConfig) -> ServiceConnection:
+    """세션 파일뿐 아니라 Workbench의 실제 응답까지 확인한다.
+
+    세션 JSON은 재연결 주소일 뿐 살아 있는 프로세스를 보장하지 않는다. 따라서
+    메타데이터를 검증한 다음 Workbench에 연결해 가벼운 프로젝트 경로 조회가
+    성공한 경우에만 연결됨으로 판정한다.
+    """
+    session_path = workbench_paths(config).session_file
+    if not session_path.is_file():
+        return ServiceConnection(
+            connected=False,
+            label="Workbench · 세션 없음",
+            detail="먼저 Workbench 브리지를 시작해야 합니다.",
+        )
+    try:
+        session = load_session(session_path)
+        response = ping_session(connect_session(config))
+    except (WorkbenchError, OSError) as error:
+        return ServiceConnection(
+            connected=False,
+            label="Workbench · 연결 끊김",
+            detail=(
+                f"{error} `cae-agent workbench status`로 다시 확인해 주세요."
+            ),
+        )
+    return ServiceConnection(
+        connected=True,
+        label=f"Workbench {session.server_version} · 연결됨",
+        detail=f"실제 ping 응답: {response}",
+    )
 
 
 ALLOWED_UPLOAD_EXTENSIONS = frozenset(
@@ -674,9 +722,46 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         ui.context.client.on_disconnect(codex_client.close)
     chat_input: Any
     chat_status: Any
+    codex_connection_badge: Any
+    workbench_connection_badge: Any
+    codex_connection_detail: Any
+    workbench_connection_detail: Any
     send_button: Any
     stop_button: Any
     retry_button: Any
+
+    def refresh_codex_connection_badge(*, error: str | None = None) -> None:
+        """현재 App Server 프로세스 상태를 Codex 연결 배지에 반영한다."""
+        if error is not None:
+            codex_connection_badge.set_text("Codex · 연결 오류")
+            codex_connection_badge.props("color=negative outline")
+            codex_connection_detail.set_text(error)
+        elif codex_client.connected:
+            codex_connection_badge.set_text("Codex · 연결됨")
+            codex_connection_badge.props("color=positive outline")
+            codex_connection_detail.set_text(
+                "Codex App Server가 localhost stdio로 연결되어 있습니다."
+            )
+        else:
+            codex_connection_badge.set_text("Codex · 미연결")
+            codex_connection_badge.props("color=grey-6 outline")
+            codex_connection_detail.set_text(
+                "첫 메시지를 보내면 Codex App Server에 연결합니다."
+            )
+
+    async def refresh_service_connections() -> None:
+        """UI를 멈추지 않고 Codex와 Workbench의 실제 연결 상태를 갱신한다."""
+        refresh_codex_connection_badge()
+        workbench_connection_badge.set_text("Workbench · 확인 중")
+        workbench_connection_badge.props("color=accent outline")
+        result = await asyncio.to_thread(probe_workbench_connection, config)
+        workbench_connection_badge.set_text(result.label)
+        workbench_connection_badge.props(
+            "color=positive outline"
+            if result.connected
+            else "color=grey-6 outline"
+        )
+        workbench_connection_detail.set_text(result.detail)
 
     def refresh_attachment_selection() -> None:
         """선택된 파일을 다음 채팅 단계가 사용할 첨부 목록으로 표시한다."""
@@ -829,6 +914,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     ) -> None:
         """Codex App Server의 실제 텍스트 이벤트를 화면에 순서대로 누적한다."""
         try:
+            codex_connection_badge.set_text("Codex · 연결 중")
+            codex_connection_badge.props("color=accent outline")
             attachment_paths = tuple(
                 config.workspace.input_dir / name for name in attachments
             )
@@ -839,6 +926,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 if chat_session.status is not ChatStatus.STREAMING:
                     return
                 if event.kind == "delta":
+                    refresh_codex_connection_badge()
                     chat_session.append_stream(
                         assistant.message_id,
                         event.text,
@@ -870,6 +958,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 ),
             )
         except (ChatError, CodexAppServerError) as error:
+            refresh_codex_connection_badge(error=str(error))
             if chat_session.status is ChatStatus.STREAMING:
                 chat_session.fail(assistant.message_id, str(error))
         finally:
@@ -1170,20 +1259,54 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 with ui.row().classes(
                     "w-full items-center justify-between gap-3 flex-wrap"
                 ):
-                    with ui.row().classes("items-center gap-2"):
-                        ui.badge(
-                            f"LOCAL SESSION {chat_session.session_id}",
-                            color="primary",
-                        ).props("outline")
-                        ui.badge(
-                            "CODEX · READ ONLY",
-                            color="positive",
-                        ).props("outline")
                     ui.button(
                         "입력 파일 선택",
                         icon="attach_file",
                         on_click=lambda: navigation.set_value(files_tab),
                     ).props("outline rounded no-caps")
+
+                with ui.card().classes(
+                    "cae-panel w-full p-4 gap-3"
+                ):
+                    with ui.row().classes(
+                        "w-full items-center justify-between gap-3 flex-wrap"
+                    ):
+                        ui.label("서비스 연결 상태").classes(
+                            "font-bold text-sm"
+                        )
+                        ui.button(
+                            "연결 상태 새로고침",
+                            icon="refresh",
+                            on_click=refresh_service_connections,
+                        ).props("flat dense rounded no-caps")
+                    with ui.grid(columns=2).classes(
+                        "w-full gap-4 max-md:grid-cols-1"
+                    ):
+                        with ui.column().classes("gap-1"):
+                            codex_connection_badge = ui.badge(
+                                "Codex · 미연결",
+                                color="grey-6",
+                            ).props("outline")
+                            codex_connection_detail = ui.label(
+                                "첫 메시지를 보내면 Codex App Server에 연결합니다."
+                            ).classes("cae-muted text-xs")
+                        with ui.column().classes("gap-1"):
+                            workbench_connection_badge = ui.badge(
+                                "Workbench · 확인 전",
+                                color="grey-6",
+                            ).props("outline")
+                            workbench_connection_detail = ui.label(
+                                "실제 Workbench ping을 아직 확인하지 않았습니다."
+                            ).classes("cae-muted text-xs")
+                    ui.label(
+                        "Codex는 현재 읽기 전용입니다. 이는 Workbench 연결 상태와 "
+                        "별개의 실행 권한입니다."
+                    ).classes("cae-muted text-xs")
+                    ui.timer(
+                        0.1,
+                        refresh_service_connections,
+                        once=True,
+                    )
 
                 with ui.card().classes("cae-panel w-full p-4 md:p-5 gap-4"):
                     with ui.column().classes(
