@@ -20,7 +20,11 @@ from cae_agent.attachments import (
     SUPPORTED_ATTACHMENT_EXTENSIONS,
     classify_attachment,
 )
-from cae_agent.approval import ApprovalRequest, ApprovalRisk
+from cae_agent.approval import (
+    ApprovalRequest,
+    ApprovalRisk,
+    requires_manual_approval,
+)
 from cae_agent.chat import (
     ChatError,
     ChatMessage,
@@ -476,16 +480,37 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             border-color: rgba(251, 113, 133, 0.58) !important;
         }
         .cae-chat-stream {
-            min-height: 420px;
-            max-height: calc(100vh - 330px);
+            flex: 1 1 auto;
+            min-height: 0;
             overflow-y: auto;
             scroll-behavior: smooth;
+            padding: 1.5rem clamp(0.5rem, 4vw, 4rem);
+        }
+        .cae-chat-page {
+            height: calc(100vh - 64px);
+            min-height: 680px;
+            overflow: hidden;
+        }
+        .cae-chat-shell {
+            flex: 1 1 auto;
+            min-height: 0;
+            background: rgba(8, 17, 31, 0.46);
+            border: 1px solid var(--cae-border);
+            border-radius: 22px;
+            overflow: hidden;
+        }
+        .cae-chat-statusbar {
+            min-height: 54px;
+            background: rgba(10, 21, 37, 0.92);
+            border-bottom: 1px solid var(--cae-border);
+            backdrop-filter: blur(16px);
         }
         .cae-message {
-            max-width: min(820px, 92%);
+            width: auto;
+            max-width: min(980px, 88%);
             border: 1px solid var(--cae-border);
-            border-radius: 16px;
-            padding: 1rem;
+            border-radius: 18px;
+            padding: 1rem 1.15rem;
         }
         .cae-message-user {
             align-self: flex-end;
@@ -494,7 +519,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         }
         .cae-message-assistant {
             align-self: flex-start;
-            background: rgba(18, 34, 56, 0.94);
+            background: rgba(18, 34, 56, 0.58);
+            border-color: transparent;
         }
         .cae-message-system {
             align-self: center;
@@ -513,9 +539,26 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         .cae-composer {
             position: sticky;
             bottom: 0;
-            background: rgba(13, 26, 43, 0.96);
+            z-index: 2;
+            border: 0;
+            border-top: 1px solid var(--cae-border);
+            border-radius: 0;
+            background: rgba(10, 21, 37, 0.98);
             backdrop-filter: blur(16px);
         }
+        .cae-chat-upload {
+            min-height: 54px !important;
+            max-height: 54px !important;
+            border: 1px dashed rgba(56, 189, 248, 0.38);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        .cae-chat-upload .q-uploader__header {
+            min-height: 52px;
+            background: transparent;
+            box-shadow: none;
+        }
+        .cae-chat-upload .q-uploader__list { display: none; }
         .q-tab-panels, .q-tab-panel {
             background: transparent !important;
         }
@@ -542,6 +585,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 width: 100%;
             }
             .cae-brand-subtitle { display: none !important; }
+            .cae-chat-page {
+                min-height: 600px;
+                height: calc(100vh - 56px);
+            }
+            .cae-chat-stream { padding: 1rem; }
+            .cae-message { max-width: 100% !important; }
         }
         """
     )
@@ -814,6 +863,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         ui.context.client.on_disconnect(codex_client.close)
     chat_input: Any
     chat_status: Any
+    chat_activity_spinner: Any
+    chat_activity_label: Any
     codex_connection_badge: Any
     workbench_connection_badge: Any
     codex_connection_detail: Any
@@ -886,12 +937,16 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     def update_chat_controls() -> None:
         """현재 응답 상태에 맞춰 전송·중지·재시도 버튼을 활성화한다."""
         if chat_session.status is ChatStatus.STREAMING:
+            chat_activity_spinner.set_visibility(True)
+            chat_activity_label.set_text("Codex가 응답을 생성하고 있습니다")
+            chat_activity_label.classes(replace="text-sm text-accent font-medium")
             send_button.disable()
             stop_button.enable()
             retry_button.disable()
             chat_status.set_text("Codex가 답변을 생성하고 있습니다.")
             chat_status.classes(replace="text-sm text-accent")
         else:
+            chat_activity_spinner.set_visibility(False)
             send_button.enable()
             stop_button.disable()
             can_retry = any(
@@ -913,6 +968,19 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     "text-sm text-negative"
                     if chat_session.status is ChatStatus.ERROR
                     else "text-sm cae-muted"
+                )
+            )
+            activity_text = {
+                ChatStatus.IDLE: "대기 중",
+                ChatStatus.STOPPED: "응답 중지됨",
+                ChatStatus.ERROR: "응답 오류",
+            }.get(chat_session.status, "대기 중")
+            chat_activity_label.set_text(activity_text)
+            chat_activity_label.classes(
+                replace=(
+                    "text-sm text-negative font-medium"
+                    if chat_session.status is ChatStatus.ERROR
+                    else "text-sm cae-muted font-medium"
                 )
             )
 
@@ -950,7 +1018,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 )
                 ui.label(
                     "Codex가 현재 저장소의 문맥을 읽고 답합니다. "
-                    "안전을 위해 파일 변경과 명령 실행은 아직 허용하지 않습니다."
+                    "일반 작업은 자동 승인하고 위험한 CAE 실행만 확인받습니다."
                 ).classes("cae-muted text-sm text-center max-w-xl")
                 ui.label(
                     "예: 선택한 STEP 파일의 형상 검토 계획을 작성해줘"
@@ -1025,6 +1093,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         for request in pending_approvals.values():
             color = {
                 ApprovalRisk.CREATE: "primary",
+                ApprovalRisk.ROUTINE: "positive",
                 ApprovalRisk.MODIFY: "accent",
                 ApprovalRisk.EXECUTE: "warning",
                 ApprovalRisk.DELETE: "negative",
@@ -1094,12 +1163,27 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     )
                     chat_messages.refresh()
                 elif event.kind == "approval" and event.approval is not None:
-                    pending_approvals[event.approval.request_id] = event.approval
-                    approval_cards.refresh()
-                    chat_status.set_text(
-                        "Codex 작업이 사용자 승인을 기다리고 있습니다."
-                    )
-                    chat_status.classes(replace="text-sm text-accent")
+                    if requires_manual_approval(event.approval):
+                        pending_approvals[event.approval.request_id] = (
+                            event.approval
+                        )
+                        approval_cards.refresh()
+                        chat_status.set_text(
+                            "위험 작업이 사용자 승인을 기다리고 있습니다."
+                        )
+                        chat_status.classes(replace="text-sm text-accent")
+                    else:
+                        await codex_client.resolve_approval(
+                            event.approval.request_id,
+                            event.approval.fingerprint,
+                            approved=True,
+                            automatic=True,
+                        )
+                        chat_status.set_text(
+                            f"{event.approval.risk.value}을 안전 정책으로 "
+                            "자동 승인했습니다."
+                        )
+                        chat_status.classes(replace="text-sm text-positive")
             chat_session.complete(
                 assistant.message_id,
                 details=(
@@ -1413,60 +1497,53 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
 
         with ui.tab_panel(chat_tab):
             with ui.column().classes(
-                "cae-page w-full max-w-7xl mx-auto p-4 md:p-7 gap-5"
+                "cae-chat-page w-full max-w-[1600px] mx-auto p-3 md:p-5 gap-3"
             ):
-                section_heading(
-                    "CONVERSATION",
-                    "CAE Agent 대화",
-                    "로컬 Codex App Server와 실제로 대화합니다. 명령 실행과 "
-                    "파일 변경은 화면에 표시된 요청을 승인해야 진행됩니다.",
-                )
-                with ui.card().classes(
-                    "cae-panel w-full p-4 gap-3"
+                with ui.row().classes(
+                    "cae-chat-statusbar w-full items-center justify-between "
+                    "gap-3 px-4 rounded-2xl"
                 ):
                     with ui.row().classes(
-                        "w-full items-center justify-between gap-3 flex-wrap"
+                        "items-center gap-3 min-w-0"
                     ):
-                        ui.label("서비스 연결 상태").classes(
-                            "font-bold text-sm"
+                        chat_activity_spinner = ui.spinner(
+                            size="20px",
+                            color="accent",
                         )
-                        ui.button(
-                            "연결 상태 새로고침",
-                            icon="refresh",
-                            on_click=refresh_service_connections,
-                        ).props("flat dense rounded no-caps")
-                    with ui.grid(columns=2).classes(
-                        "w-full gap-4 max-md:grid-cols-1"
-                    ):
-                        with ui.column().classes("gap-1"):
-                            codex_connection_badge = ui.badge(
-                                "Codex · 미연결",
-                                color="grey-6",
-                            ).props("outline")
-                            codex_connection_detail = ui.label(
-                                "첫 메시지를 보내면 Codex App Server에 연결합니다."
-                            ).classes("cae-muted text-xs")
-                        with ui.column().classes("gap-1"):
-                            workbench_connection_badge = ui.badge(
-                                "Workbench · 확인 전",
-                                color="grey-6",
-                            ).props("outline")
-                            workbench_connection_detail = ui.label(
-                                "실제 Workbench ping을 아직 확인하지 않았습니다."
-                            ).classes("cae-muted text-xs")
-                    ui.label(
-                        "Codex 실행 권한은 승인 카드로 제어하며 Workbench 연결 "
-                        "상태와는 별개입니다."
-                    ).classes("cae-muted text-xs")
+                        chat_activity_label = ui.label("대기 중").classes(
+                            "text-sm cae-muted font-medium"
+                        )
+                        ui.separator().props("vertical").classes("h-5 opacity-30")
+                        codex_connection_badge = ui.badge(
+                            "Codex · 미연결",
+                            color="grey-6",
+                        ).props("outline")
+                        workbench_connection_badge = ui.badge(
+                            "Workbench · 확인 전",
+                            color="grey-6",
+                        ).props("outline")
+                        ui.badge("안전 작업 자동 승인", color="positive").props(
+                            "outline"
+                        )
+                    ui.button(
+                        icon="refresh",
+                        on_click=refresh_service_connections,
+                    ).props("flat dense round").tooltip("연결 상태 새로고침")
+                    codex_connection_detail = ui.label(
+                        "첫 메시지를 보내면 Codex에 연결합니다."
+                    ).classes("hidden")
+                    workbench_connection_detail = ui.label(
+                        "Workbench 연결을 확인합니다."
+                    ).classes("hidden")
                     ui.timer(
                         0.1,
                         refresh_service_connections,
                         once=True,
                     )
 
-                with ui.card().classes("cae-panel w-full p-4 md:p-5 gap-4"):
+                with ui.column().classes("cae-chat-shell w-full gap-0"):
                     with ui.column().classes(
-                        "cae-chat-stream w-full gap-4 px-1"
+                        "cae-chat-stream w-full gap-4"
                     ):
                         chat_messages()
                         approval_cards()
@@ -1501,7 +1578,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                             'accept=".png,.jpg,.jpeg,.webp,.bmp,.step,.stp,'
                             '.iges,.igs,.scdoc,.wbpj,.mechdat,.csv,.json,.txt" '
                             "flat bordered"
-                        ).classes("w-full")
+                        ).classes("cae-chat-upload w-full")
                         chat_attachment_chips = ui.row().classes(
                             "w-full gap-2 flex-wrap"
                         )

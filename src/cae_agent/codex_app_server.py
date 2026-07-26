@@ -215,6 +215,7 @@ class CodexAppServerClient:
         fingerprint: str,
         *,
         approved: bool,
+        automatic: bool = False,
     ) -> None:
         """화면에 표시한 동일 요청에 한해서만 일회성 승인 결과를 보낸다."""
         request = self._approvals.pop(request_id, None)
@@ -232,7 +233,12 @@ class CodexAppServerClient:
         await self._write({"id": request_id, "result": {"decision": decision}})
         if approved:
             self._approved_items[request.item_id] = request
-        self._audit(request, "approved" if approved else "declined")
+        event = (
+            "auto_approved"
+            if approved and automatic
+            else ("approved" if approved else "declined")
+        )
+        self._audit(request, event)
 
     async def interrupt(self) -> None:
         """현재 응답이 진행 중이면 App Server에 중단 요청을 보낸다."""
