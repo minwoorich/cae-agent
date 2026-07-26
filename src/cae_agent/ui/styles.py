@@ -122,9 +122,11 @@ def apply_ui_theme(ui: Any) -> None:
             padding: 1.5rem clamp(0.5rem, 4vw, 4rem);
         }
         .cae-chat-page {
-            height: calc(100vh - 64px);
-            min-height: 680px;
+            height: 100%;
+            min-height: 0;
             overflow: hidden;
+            padding: 0.75rem clamp(0.75rem, 2vw, 1.25rem);
+            position: relative;
         }
         .cae-chat-shell {
             flex: 1 1 auto;
@@ -134,11 +136,25 @@ def apply_ui_theme(ui: Any) -> None:
             border-radius: 22px;
             overflow: hidden;
         }
-        .cae-chat-statusbar {
-            min-height: 54px;
-            background: rgba(10, 21, 37, 0.92);
-            border-bottom: 1px solid var(--cae-border);
-            backdrop-filter: blur(16px);
+        .cae-chat-tab-panel {
+            height: calc(100dvh - 64px);
+            min-height: 0;
+            overflow: hidden !important;
+            padding: 0 !important;
+        }
+        .cae-session-menu-trigger {
+            position: fixed !important;
+            top: 16px;
+            right: 176px;
+            z-index: 3000;
+            color: var(--cae-primary) !important;
+        }
+        .cae-session-menu {
+            background: #0d1a2b !important;
+            color: var(--cae-text) !important;
+            border: 1px solid var(--cae-border);
+            border-radius: 14px;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
         }
         .cae-message {
             width: auto;
@@ -257,9 +273,12 @@ def apply_ui_theme(ui: Any) -> None:
             }
             .cae-brand-subtitle { display: none !important; }
             .cae-chat-page {
-                min-height: 600px;
-                height: calc(100vh - 56px);
+                min-height: 0;
+                height: 100%;
+                padding: 0.5rem;
             }
+            .cae-chat-tab-panel { height: calc(100dvh - 56px); }
+            .cae-session-menu-trigger { right: 0.75rem; top: 12px; }
             .cae-chat-stream { padding: 1rem; }
             .cae-message { max-width: 100% !important; }
             .cae-composer { padding: 0.65rem !important; }
