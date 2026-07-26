@@ -23,13 +23,19 @@ from cae_agent.ui import (
 
 @pytest.fixture
 def ui_source() -> str:
-    """안전 경계와 정보 구조 테스트가 공유할 UI 원본을 한 번 읽어 반환한다."""
-    return (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "cae_agent"
-        / "ui.py"
-    ).read_text(encoding="utf-8")
+    """분리된 UI 모듈 전체를 안전 경계 검사용 단일 문자열로 반환한다."""
+    ui_directory = (
+        Path(__file__).resolve().parents[1] / "src" / "cae_agent"
+    )
+    return "\n".join(
+        (ui_directory / filename).read_text(encoding="utf-8")
+        for filename in (
+            "ui.py",
+            "ui_chat.py",
+            "ui_files.py",
+            "ui_styles.py",
+        )
+    )
 
 
 def test_dashboard_snapshot_reads_status_without_model_changes(
@@ -374,7 +380,7 @@ def test_store_input_upload_rejects_empty_and_oversized_content(
 ) -> None:
     """의미 없는 빈 파일과 서버 제한을 넘는 파일은 저장 전에 거부해야 한다."""
     config = load_config(current_directory=tmp_path)
-    monkeypatch.setattr("cae_agent.ui.MAX_UPLOAD_SIZE_BYTES", 4)
+    monkeypatch.setattr("cae_agent.ui_files.MAX_UPLOAD_SIZE_BYTES", 4)
 
     with pytest.raises(UIError, match="빈 파일"):
         store_input_upload(config, filename="empty.csv", content=b"")
