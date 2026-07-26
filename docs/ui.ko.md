@@ -105,9 +105,11 @@ Mechanical 응답을 보장하지 않으므로 CAE 작업을 시작할 때는 Co
 - 명령, 스크립트와 로그를 위한 접이식 상세 카드
 
 현재 Codex 스레드는 `read-only` 샌드박스와 `on-request` 승인 정책으로
-시작됩니다. 상태 확인 같은 일반 명령과 작업공간 파일 변경은 안전 정책으로
-자동 승인해 채팅이 중간에 멈추지 않습니다. 자동 승인도 정확한 요청 한 건에만
-유효하며 `auto_approved` 이벤트로 감사 로그에 기록됩니다.
+시작됩니다. App Server가 파일 변경 승인보다 먼저 보내는 변경 항목의 실제
+경로를 확인해 모든 파일이 `workspace/generated` 안에 있을 때만 자동
+승인합니다. `input`, `results`, `logs`, `.runtime`과 제품 소스는 계속
+읽기 전용입니다. 자동 승인도 정확한 요청 한 건에만 유효하며
+`auto_approved` 이벤트로 감사 로그에 기록됩니다.
 
 SpaceClaim·Mechanical 실행, 해석 solve, Workbench 프로젝트 생성처럼 실제
 CAE 모델이나 라이선스 자원을 사용하는 요청과 `--clear`, `--overwrite`, 파일

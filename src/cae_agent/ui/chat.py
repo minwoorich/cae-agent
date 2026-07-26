@@ -657,12 +657,14 @@ def build_chat_panel(
                 details=(
                     MessageDetail(
                         kind=MessageDetailKind.COMMAND,
-                        title="현재 안전 모드",
+                        title="현재 작업 권한",
                         content=(
                             "Codex App Server 연결됨\n"
-                            "작업공간 쓰기: 사용자 승인 필요\n"
-                            "명령·파일 변경: 일회성 승인\n"
-                            "광범위 권한 요청: 자동 거절"
+                            "generated 쓰기: 경로 확인 후 자동 승인\n"
+                            "input·results·logs·소스: 읽기 전용\n"
+                            f"실행·삭제 승인: "
+                            f"{'YOLO 자동 승인' if yolo_mode_state['enabled'] else '작업별 확인'}\n"
+                            "모호한 전체 작업공간 쓰기: 자동 거절"
                         ),
                     ),
                     MessageDetail(
