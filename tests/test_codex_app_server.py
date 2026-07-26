@@ -53,6 +53,15 @@ def feed(process: FakeProcess, payload: dict[str, object]) -> None:
     )
 
 
+async def wait_for_writes(process: FakeProcess, count: int) -> None:
+    """이벤트 루프 속도와 무관하게 지정한 요청 수가 기록될 때까지 기다린다."""
+    for _ in range(100):
+        if len(process.stdin.lines) >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"예상한 JSONL 요청 {count}개가 기록되지 않았습니다.")
+
+
 def test_start_and_stream_turn_use_read_only_protocol(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -76,9 +85,10 @@ async def _start_and_stream_turn_use_read_only_protocol(
     client = CodexAppServerClient(tmp_path)
 
     start_task = asyncio.create_task(client.start())
-    await asyncio.sleep(0)
+    await wait_for_writes(process, 1)
     feed(process, {"id": 1, "result": {}})
-    await asyncio.sleep(0)
+    # initialized 알림과 thread/start 요청이 모두 기록된 뒤 응답해야 한다.
+    await wait_for_writes(process, 3)
     feed(
         process,
         {"id": 2, "result": {"thread": {"id": "thread-1"}}},
@@ -92,7 +102,7 @@ async def _start_and_stream_turn_use_read_only_protocol(
         ]
 
     stream_task = asyncio.create_task(collect())
-    await asyncio.sleep(0)
+    await wait_for_writes(process, 4)
     feed(process, {"id": 3, "result": {"turn": {"id": "turn-1"}}})
     await asyncio.sleep(0)
     feed(
