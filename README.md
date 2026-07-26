@@ -12,6 +12,7 @@ provider.
 ## Documentation
 
 - [Codex 자연어 인터페이스 가이드](docs/codex-first.ko.md)
+- [로컬 상태·승인 대시보드](docs/ui.ko.md)
 - [한국어 시작 가이드](docs/getting-started.ko.md)
 - [한국어 문제 해결 가이드](docs/troubleshooting.ko.md)
 - [전력반도체 열해석 공식 예제](examples/power-semiconductor-thermal/README.md)
@@ -39,6 +40,18 @@ Codex can also report accumulated workspace usage and preview retention-based
 cleanup without deleting files. Actual cleanup requires a separate explicit
 approval, never includes `workspace/input` or `workspace/results`, and is
 blocked while session metadata is present.
+
+For an optional local dashboard, install the UI extra and start the
+localhost-only NiceGUI server:
+
+```powershell
+.\setup.ps1 -WithAnsys -WithUI
+.\.venv\Scripts\cae-agent.exe ui
+```
+
+The dashboard displays diagnostics, session metadata, workspace usage, recent
+file names, and cleanup approval. It does not expose model-editing controls or
+listen on an external network interface.
 
 ## Development setup
 

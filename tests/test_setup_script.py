@@ -27,6 +27,7 @@ def test_setup_dry_run_does_not_create_environment(tmp_path: Path) -> None:
             str(relative_venv),
             "-WithAnsys",
             "-WithDev",
+            "-WithUI",
         ],
         cwd=ROOT,
         capture_output=True,
@@ -37,7 +38,7 @@ def test_setup_dry_run_does_not_create_environment(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "검증 전용 모드" in completed.stdout
-    assert ".[ansys,dev]" in completed.stdout
+    assert ".[ansys,dev,ui]" in completed.stdout
     assert not (ROOT / relative_venv).exists()
 
 

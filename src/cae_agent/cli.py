@@ -33,6 +33,7 @@ from cae_agent.mechanical import (
 from cae_agent.project import ProjectError, create_project
 from cae_agent.repair import RepairError, run_repair_loop
 from cae_agent.spaceclaim import SpaceClaimError, run_spaceclaim_script
+from cae_agent.ui import UIError, launch_ui
 from cae_agent.workbench import (
     WorkbenchError,
     connect_session,
@@ -171,6 +172,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="json_output",
         help="정리 계획 또는 결과를 자동화용 JSON 형식으로 출력합니다.",
+    )
+
+    ui_parser = subparsers.add_parser(
+        "ui",
+        help="환경·세션·작업공간을 확인하는 로컬 대시보드를 실행합니다.",
+        description=(
+            "NiceGUI 대시보드를 127.0.0.1에서만 실행합니다. UI 로딩만으로 "
+            "Ansys 모델을 변경하지 않습니다."
+        ),
+    )
+    ui_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    ui_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="localhost 대시보드 포트입니다. 기본값: 8765",
+    )
+    ui_parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="서버 시작 후 기본 브라우저를 자동으로 열지 않습니다.",
     )
 
     workbench_parser = subparsers.add_parser(
@@ -436,6 +463,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1 if result.failures else 0
         except (ConfigError, WorkspaceError, OSError) as error:
             parser.error(str(error))
+
+    if args.command == "ui":
+        try:
+            config = load_config(args.config_file)
+            launch_ui(
+                config,
+                port=args.port,
+                show=not args.no_browser,
+            )
+        except (ConfigError, UIError, OSError) as error:
+            parser.error(str(error))
+        return 0
 
     if args.command == "workbench":
         try:

@@ -12,6 +12,7 @@ cae-agent.toml을 삭제하거나 덮어쓰지 않습니다.
 param(
     [switch]$WithAnsys,
     [switch]$WithDev,
+    [switch]$WithUI,
     [string]$PythonExecutable,
     [string]$VirtualEnvironment = ".venv",
     [switch]$SkipPipUpgrade
@@ -109,6 +110,9 @@ if ($WithAnsys) {
 }
 if ($WithDev) {
     $extras += "dev"
+}
+if ($WithUI) {
+    $extras += "ui"
 }
 $packageTarget = if ($extras.Count -gt 0) {
     ".[" + ($extras -join ",") + "]"

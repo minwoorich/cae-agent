@@ -91,3 +91,19 @@ Mechanical 연결 전에 Workbench 세션과 대상 시스템이 존재해야 �
 
 `input`과 `results`는 항상 자동 정리에서 제외된다. 활성 세션 메타데이터가
 있으면 실제 정리를 강행하지 말고 Workbench와 Mechanical을 정상 종료한다.
+
+## 로컬 대시보드
+
+```powershell
+.\setup.ps1 -WithAnsys -WithUI
+.\.venv\Scripts\cae-agent.exe ui
+```
+
+다른 로컬 포트에서 브라우저 자동 실행 없이 시작할 수 있다.
+
+```powershell
+.\.venv\Scripts\cae-agent.exe ui --port 8876 --no-browser
+```
+
+UI는 항상 `127.0.0.1`에 바인딩된다. 외부 주소에 노출하거나 모델 편집과 해석
+실행을 UI 버튼으로 우회하지 않는다.
