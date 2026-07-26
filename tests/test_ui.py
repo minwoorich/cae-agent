@@ -41,6 +41,7 @@ def test_dashboard_snapshot_reads_status_without_model_changes(
     assert snapshot.checks[0].status is CheckStatus.PASS
     assert snapshot.workbench_session is False
     assert snapshot.mechanical_session_count == 0
+    assert snapshot.recent_inputs == ()
     assert snapshot.recent_logs == ("latest.log",)
     assert snapshot.recent_results == ("model.wbpj",)
     assert snapshot.workspace.total_file_count == 2
@@ -100,8 +101,30 @@ def test_ui_source_keeps_preview_and_approval_separate() -> None:
     assert "input과 results는 삭제하지 않습니다" in source
     assert 'target.open("xb")' in source
     assert "store_input_upload" in source
-    assert "파일은 workspace/input에만 저장됩니다" in source
-    assert "실행하거나 기존 모델을 변경하지 않습니다" in source
+    assert "workspace/input에 새로 저장되며 기존 파일을" in source
+    assert "덮어쓰거나 Ansys를 자동 실행하지 않습니다" in source
+
+
+def test_ui_source_defines_structured_information_architecture() -> None:
+    """UI가 핵심 작업을 분리한 내비게이션과 디자인 토큰을 유지해야 한다."""
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "cae_agent"
+        / "ui.py"
+    ).read_text(encoding="utf-8")
+
+    assert "--cae-bg" in source
+    assert "ui.left_drawer" in source
+    assert '\"overview\"' in source
+    assert '\"files\"' in source
+    assert '\"activity\"' in source
+    assert '\"maintenance\"' in source
+    assert "LOCAL ONLY" in source
+    assert "Codex 채팅과 파일 첨부는 UI v0.2의 다음 단계" in source
+    assert "색상에만 의존하지 않는" in source
+    assert "ui.left_drawer(value=None)" in source
+    assert "cae-actions .q-btn" in source
 
 
 def test_missing_nicegui_reports_optional_install(
