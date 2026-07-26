@@ -207,6 +207,20 @@ def test_ui_source_auto_scrolls_stream_without_interrupting_history_reading(
     assert "id=cae-chat-stream" in ui_source
 
 
+def test_ui_source_keeps_chat_session_during_navigation_and_shows_progress(
+    ui_source: str,
+) -> None:
+    """같은 페이지의 메뉴 전환이 세션을 닫지 않고 공개 진행 단계를 표시해야 한다."""
+    assert "progress_steps" in ui_source
+    assert "ChatProgressStep" in ui_source
+    assert "작업 과정" in ui_source
+    assert 'event.kind == "progress"' in ui_source
+    assert "ui.timer(1.0, refresh_progress_clock)" in ui_source
+    # Codex 종료는 브라우저 연결 종료에만 묶고 탭 변경 이벤트에는 연결하지 않는다.
+    assert "on_disconnect(codex_client.close)" in ui_source
+    assert "on_change=codex_client.close" not in ui_source
+
+
 def test_ui_source_defines_structured_information_architecture(
     ui_source: str,
 ) -> None:

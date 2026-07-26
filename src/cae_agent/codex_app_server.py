@@ -19,6 +19,7 @@ from cae_agent.approval import (
     ApprovalRequest,
     append_approval_audit,
     build_approval_request,
+    redact_secrets,
 )
 
 
@@ -34,6 +35,81 @@ class CodexStreamEvent:
     text: str = ""
     status: str = ""
     approval: ApprovalRequest | None = None
+    item_id: str = ""
+    title: str = ""
+    detail: str = ""
+
+
+def _normalize_progress_item(
+    raw_item: Any,
+    *,
+    completed: bool,
+) -> CodexStreamEvent | None:
+    """App Server 작업 항목을 사용자에게 공개할 짧은 진행 단계로 변환한다.
+
+    명령 전체 출력이나 내부 추론 원문은 진행 패널에 넣지 않는다. 사용자가
+    현재 어떤 종류의 작업이 실행되는지 판단하는 데 필요한 대상과 결과만
+    비밀정보를 가린 뒤 제한된 길이로 제공한다.
+    """
+    if not isinstance(raw_item, dict):
+        return None
+    item_type = str(raw_item.get("type") or "")
+    item_id = str(raw_item.get("id") or item_type or "progress")
+    status = str(raw_item.get("status") or "")
+    normalized_status = (
+        "failed"
+        if status in {"failed", "declined"}
+        else "completed" if completed else "running"
+    )
+
+    title = ""
+    detail = ""
+    if item_type == "reasoning":
+        title = "요청을 검토하고 있습니다"
+        summary = raw_item.get("summary") or []
+        if isinstance(summary, list):
+            detail = " ".join(str(part) for part in summary)
+    elif item_type == "commandExecution":
+        title = "명령을 실행하고 있습니다"
+        detail = redact_secrets(str(raw_item.get("command") or ""))
+    elif item_type == "fileChange":
+        title = "작업 파일을 변경하고 있습니다"
+        changes = raw_item.get("changes") or []
+        if isinstance(changes, list):
+            paths = [
+                str(change.get("path"))
+                for change in changes
+                if isinstance(change, dict) and change.get("path")
+            ]
+            detail = ", ".join(paths)
+    elif item_type == "mcpToolCall":
+        title = "연결된 도구를 사용하고 있습니다"
+        server = str(raw_item.get("server") or "")
+        tool = str(raw_item.get("tool") or "")
+        detail = " · ".join(part for part in (server, tool) if part)
+    elif item_type == "dynamicToolCall":
+        title = "도구 작업을 수행하고 있습니다"
+        namespace = str(raw_item.get("namespace") or "")
+        tool = str(raw_item.get("tool") or "")
+        detail = " · ".join(part for part in (namespace, tool) if part)
+    elif item_type == "webSearch":
+        title = "자료를 검색하고 있습니다"
+        detail = str(raw_item.get("query") or "")
+    elif item_type == "plan":
+        title = "작업 계획을 정리하고 있습니다"
+        detail = str(raw_item.get("text") or "")
+    else:
+        return None
+
+    # 진행 패널은 상태 확인용이므로 긴 명령·검색어·요약이 채팅을 다시
+    # 잠식하지 않도록 한 단계의 상세 내용은 300자로 제한한다.
+    return CodexStreamEvent(
+        kind="progress",
+        item_id=item_id,
+        title=title,
+        detail=detail.strip()[:300],
+        status=normalized_status,
+    )
 
 
 class CodexAppServerClient:
@@ -189,6 +265,23 @@ class CodexAppServerClient:
                 continue
             if method == "item/agentMessage/delta":
                 yield CodexStreamEvent(kind="delta", text=str(params["delta"]))
+            elif method == "item/reasoning/summaryTextDelta":
+                # App Server가 공개용으로 제공하는 reasoning summary만 사용한다.
+                # 내부 추론 원문인 reasoning/textDelta는 의도적으로 전달하지 않는다.
+                yield CodexStreamEvent(
+                    kind="progress",
+                    item_id=str(params.get("itemId") or "reasoning"),
+                    title="요청을 검토하고 있습니다",
+                    detail=str(params.get("delta") or ""),
+                    status="running",
+                )
+            elif method in {"item/started", "item/completed"}:
+                progress = _normalize_progress_item(
+                    params.get("item"),
+                    completed=method == "item/completed",
+                )
+                if progress is not None:
+                    yield progress
             elif method == "client/approvalRequested":
                 approval = params.get("approval")
                 if isinstance(approval, ApprovalRequest):

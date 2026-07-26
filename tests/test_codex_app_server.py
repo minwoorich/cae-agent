@@ -11,6 +11,7 @@ import pytest
 from cae_agent.codex_app_server import (
     CodexAppServerClient,
     CodexAppServerError,
+    CodexStreamEvent,
 )
 
 
@@ -95,9 +96,9 @@ async def _start_and_stream_turn_use_read_only_protocol(
     )
     await start_task
 
-    async def collect() -> list[tuple[str, str]]:
+    async def collect() -> list[CodexStreamEvent]:
         return [
-            (event.kind, event.text or event.status)
+            event
             async for event in client.stream_turn(
                 "열해석 계획을 알려줘",
                 attachments=(
@@ -111,6 +112,60 @@ async def _start_and_stream_turn_use_read_only_protocol(
     await wait_for_writes(process, 4)
     feed(process, {"id": 3, "result": {"turn": {"id": "turn-1"}}})
     await asyncio.sleep(0)
+    feed(
+        process,
+        {
+            "method": "item/reasoning/summaryTextDelta",
+            "params": {
+                "turnId": "turn-1",
+                "itemId": "reasoning-1",
+                "summaryIndex": 0,
+                "delta": "형상 단순화 기준을 확인 중입니다.",
+            },
+        },
+    )
+    # 내부 추론 원문 이벤트는 UI에 전달하지 않고 공개 summary만 사용한다.
+    feed(
+        process,
+        {
+            "method": "item/reasoning/textDelta",
+            "params": {
+                "turnId": "turn-1",
+                "itemId": "reasoning-1",
+                "delta": "화면에 노출하면 안 되는 내부 추론",
+            },
+        },
+    )
+    feed(
+        process,
+        {
+            "method": "item/started",
+            "params": {
+                "turnId": "turn-1",
+                "item": {
+                    "id": "command-1",
+                    "type": "commandExecution",
+                    "status": "inProgress",
+                    "command": "cae-agent doctor --token=secret-value",
+                },
+            },
+        },
+    )
+    feed(
+        process,
+        {
+            "method": "item/completed",
+            "params": {
+                "turnId": "turn-1",
+                "item": {
+                    "id": "command-1",
+                    "type": "commandExecution",
+                    "status": "completed",
+                    "command": "cae-agent doctor --token=secret-value",
+                },
+            },
+        },
+    )
     feed(
         process,
         {
@@ -128,10 +183,19 @@ async def _start_and_stream_turn_use_read_only_protocol(
             },
         },
     )
-    assert await stream_task == [
-        ("delta", "계획입니다."),
+    events = await stream_task
+    assert [(event.kind, event.status) for event in events] == [
+        ("progress", "running"),
+        ("progress", "running"),
+        ("progress", "completed"),
+        ("delta", ""),
         ("completed", "completed"),
     ]
+    assert events[0].title == "요청을 검토하고 있습니다"
+    assert events[0].detail == "형상 단순화 기준을 확인 중입니다."
+    assert events[1].title == "명령을 실행하고 있습니다"
+    assert "secret-value" not in events[1].detail
+    assert events[3].text == "계획입니다."
     assert process.stdin.lines[1] == {"method": "initialized"}
     thread_params = process.stdin.lines[2]["params"]
     assert thread_params["sandbox"] == "read-only"

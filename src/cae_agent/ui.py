@@ -8,7 +8,7 @@ UI는 기존 서비스 계층을 직접 호출하며 셸 명령의 텍스트 출
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -67,6 +67,20 @@ class ServiceConnection:
     connected: bool
     label: str
     detail: str
+
+
+@dataclass(slots=True)
+class ChatProgressStep:
+    """한 assistant 응답에서 사용자에게 공개할 관찰 가능한 작업 단계."""
+
+    step_id: str
+    title: str
+    status: str = "running"
+    detail: str = ""
+    started_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    completed_at: datetime | None = None
 
 
 def probe_workbench_connection(config: AppConfig) -> ServiceConnection:
@@ -536,6 +550,20 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             overflow-wrap: anywhere;
             line-height: 1.7;
         }
+        .cae-progress-panel {
+            border: 1px solid rgba(148, 163, 184, 0.20);
+            border-radius: 14px;
+            background: rgba(2, 6, 23, 0.20);
+        }
+        .cae-progress-step {
+            padding: 0.4rem 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+        }
+        .cae-progress-step:last-child { border-bottom: 0; }
+        .cae-progress-detail {
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+        }
         .cae-composer {
             position: sticky;
             bottom: 0;
@@ -881,6 +909,11 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         audit_path=config.workspace.logs_dir / "codex-approvals.jsonl",
     )
     pending_approvals: dict[int, ApprovalRequest] = {}
+    # 진행 단계는 assistant 메시지 ID별로 보관한다. 메뉴 탭은 같은 페이지의
+    # 렌더링만 전환하므로 사용자가 다른 메뉴를 보는 동안에도 이 상태와 Codex
+    # 스트림은 유지된다. 브라우저 연결 자체가 끊기면 아래 on_disconnect에서
+    # App Server를 종료하므로 새로고침 후까지 영속화하는 용도는 아니다.
+    progress_steps: dict[str, dict[str, ChatProgressStep]] = {}
     # 사용자가 탭을 닫으면 해당 브라우저 세션의 자식 프로세스도 종료한다.
     # 테스트용 UI 대역에는 context가 없을 수 있으므로 실제 NiceGUI에서만 등록한다.
     if hasattr(ui, "context") and hasattr(ui.context, "client"):
@@ -898,6 +931,53 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     send_button: Any
     stop_button: Any
     retry_button: Any
+
+    def update_progress_step(
+        assistant_id: str,
+        *,
+        step_id: str,
+        title: str,
+        status: str,
+        detail: str,
+    ) -> None:
+        """동일 App Server 항목의 시작·요약·완료 이벤트를 한 줄로 합친다."""
+        message_steps = progress_steps.setdefault(assistant_id, {})
+        step = message_steps.get(step_id)
+        if step is None:
+            step = ChatProgressStep(step_id=step_id, title=title)
+            message_steps[step_id] = step
+        if title:
+            step.title = title
+        step.status = status or step.status
+        if detail:
+            if step.detail and status == "running":
+                step.detail = f"{step.detail}{detail}"[-600:]
+            else:
+                step.detail = detail[-600:]
+        if step.status in {"completed", "failed"}:
+            step.completed_at = datetime.now(timezone.utc)
+
+    def progress_elapsed_text(step: ChatProgressStep) -> str:
+        """진행 중 또는 완료 시점까지의 경과 시간을 짧은 한글 표기로 반환한다."""
+        end = step.completed_at or datetime.now(timezone.utc)
+        seconds = max(0, int((end - step.started_at).total_seconds()))
+        return f"{seconds}초"
+
+    def refresh_progress_clock() -> None:
+        """응답 생성 중에만 경과 시간 숫자를 1초 간격으로 다시 그린다."""
+        if chat_session.status is ChatStatus.STREAMING:
+            chat_messages.refresh()
+
+    def finalize_progress_steps(
+        assistant_id: str,
+        *,
+        final_status: str,
+    ) -> None:
+        """턴 종료 시 완료 알림이 없던 진행 단계도 화면에 실행 결과를 남긴다."""
+        for step in progress_steps.get(assistant_id, {}).values():
+            if step.status == "running":
+                step.status = final_status
+                step.completed_at = datetime.now(timezone.utc)
 
     async def scroll_chat_to_latest(*, force: bool = False) -> None:
         """새 메시지를 보여주되 사용자가 과거 대화를 읽는 중이면 위치를 보존한다.
@@ -1129,6 +1209,64 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                                 attachment,
                                 icon="attach_file",
                             ).props("dense outline color=primary")
+                message_progress = list(
+                    progress_steps.get(message.message_id, {}).values()
+                )
+                if message.role is MessageRole.ASSISTANT and message_progress:
+                    completed_count = sum(
+                        step.status == "completed"
+                        for step in message_progress
+                    )
+                    is_active = (
+                        chat_session.status is ChatStatus.STREAMING
+                        and chat_session.active_assistant_id
+                        == message.message_id
+                    )
+                    panel_title = (
+                        f"작업 중 · {len(message_progress)}단계"
+                        if is_active
+                        else (
+                            f"작업 과정 · {completed_count}/"
+                            f"{len(message_progress)} 완료"
+                        )
+                    )
+                    with ui.expansion(
+                        panel_title,
+                        icon="progress_activity" if is_active else "task_alt",
+                        value=is_active,
+                    ).classes("cae-progress-panel w-full"):
+                        for step in message_progress:
+                            icon = {
+                                "running": "progress_activity",
+                                "completed": "check_circle",
+                                "failed": "error",
+                                "stopped": "stop_circle",
+                            }.get(step.status, "radio_button_unchecked")
+                            color = {
+                                "running": "accent",
+                                "completed": "positive",
+                                "failed": "negative",
+                                "stopped": "grey-6",
+                            }.get(step.status, "grey-6")
+                            with ui.row().classes(
+                                "cae-progress-step w-full items-start "
+                                "gap-2 no-wrap"
+                            ):
+                                ui.icon(icon).classes(
+                                    f"text-{color} text-base mt-0.5"
+                                )
+                                with ui.column().classes("flex-1 gap-0"):
+                                    ui.label(step.title).classes(
+                                        "text-sm font-medium"
+                                    )
+                                    if step.detail:
+                                        ui.label(step.detail).classes(
+                                            "cae-progress-detail cae-muted "
+                                            "text-xs"
+                                        )
+                                ui.label(
+                                    progress_elapsed_text(step)
+                                ).classes("cae-muted text-xs")
                 body = message.content
                 if (
                     message.role is MessageRole.ASSISTANT
@@ -1164,6 +1302,20 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         except CodexAppServerError as error:
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
+        else:
+            if chat_session.active_assistant_id is not None:
+                update_progress_step(
+                    chat_session.active_assistant_id,
+                    step_id=f"approval-{request.request_id}",
+                    title=(
+                        "사용자가 작업을 승인했습니다"
+                        if approved
+                        else "사용자가 작업을 거절했습니다"
+                    ),
+                    status="completed" if approved else "failed",
+                    detail=request.title,
+                )
+            chat_messages.refresh()
         finally:
             pending_approvals.pop(request.request_id, None)
             approval_cards.refresh()
@@ -1244,7 +1396,24 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     )
                     chat_messages.refresh()
                     await scroll_chat_to_latest()
+                elif event.kind == "progress":
+                    update_progress_step(
+                        assistant.message_id,
+                        step_id=event.item_id or "codex-progress",
+                        title=event.title or "작업을 진행하고 있습니다",
+                        status=event.status or "running",
+                        detail=event.detail,
+                    )
+                    chat_messages.refresh()
+                    await scroll_chat_to_latest()
                 elif event.kind == "approval" and event.approval is not None:
+                    update_progress_step(
+                        assistant.message_id,
+                        step_id=f"approval-{event.approval.request_id}",
+                        title="작업 승인을 확인하고 있습니다",
+                        status="running",
+                        detail=event.approval.title,
+                    )
                     if requires_manual_approval(event.approval):
                         pending_approvals[event.approval.request_id] = (
                             event.approval
@@ -1262,11 +1431,19 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                             approved=True,
                             automatic=True,
                         )
+                        update_progress_step(
+                            assistant.message_id,
+                            step_id=f"approval-{event.approval.request_id}",
+                            title="안전 정책으로 승인했습니다",
+                            status="completed",
+                            detail=event.approval.title,
+                        )
                         chat_status.set_text(
                             f"{event.approval.risk.value}을 안전 정책으로 "
                             "자동 승인했습니다."
                         )
                         chat_status.classes(replace="text-sm text-positive")
+                    chat_messages.refresh()
             chat_session.complete(
                 assistant.message_id,
                 details=(
@@ -1291,8 +1468,16 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     ),
                 ),
             )
+            finalize_progress_steps(
+                assistant.message_id,
+                final_status="completed",
+            )
         except (ChatError, CodexAppServerError) as error:
             refresh_codex_connection_badge(error=str(error))
+            finalize_progress_steps(
+                assistant.message_id,
+                final_status="failed",
+            )
             if chat_session.status is ChatStatus.STREAMING:
                 chat_session.fail(assistant.message_id, str(error))
         finally:
@@ -1315,6 +1500,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             return
 
         chat_input.value = ""
+        progress_steps[assistant.message_id] = {
+            "turn": ChatProgressStep(
+                step_id="turn",
+                title="Codex 요청을 시작하고 있습니다",
+            )
+        }
         # 첨부는 일반 채팅 앱처럼 현재 메시지에만 사용한다. 재시도에 필요한
         # 파일명은 이미 ChatMessage에 복사됐으므로 선택 목록만 안전하게 비운다.
         selected_inputs.clear()
@@ -1333,6 +1524,10 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         try:
             await codex_client.interrupt()
             chat_session.stop()
+            finalize_progress_steps(
+                assistant_id=chat_session.messages[-1].message_id,
+                final_status="stopped",
+            )
         except (ChatError, CodexAppServerError) as error:
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
@@ -1347,6 +1542,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
             return
+        progress_steps[assistant.message_id] = {
+            "turn": ChatProgressStep(
+                step_id="turn",
+                title="마지막 요청을 다시 시작하고 있습니다",
+            )
+        }
         user_message = chat_session.messages[-2]
         chat_messages.refresh()
         update_chat_controls()
@@ -1703,6 +1904,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                         # 숨긴다. 생성 상태는 상단 상태 표시줄에서 한 번만 보여준다.
                         chat_status = ui.label("").classes("hidden")
                         update_chat_controls()
+                        ui.timer(1.0, refresh_progress_clock)
 
         with ui.tab_panel(activity_tab):
             with ui.column().classes(
