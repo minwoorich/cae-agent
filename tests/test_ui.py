@@ -221,6 +221,21 @@ def test_ui_source_keeps_chat_session_during_navigation_and_shows_progress(
     assert "on_change=codex_client.close" not in ui_source
 
 
+def test_ui_source_submits_with_enter_and_preserves_shift_enter(
+    ui_source: str,
+) -> None:
+    """Enter 전송은 IME 조합과 Shift+Enter 줄바꿈을 침범하지 않아야 한다."""
+    assert "CHAT_SUBMIT_KEYDOWN_JS" in ui_source
+    assert "event.key === 'Enter'" in ui_source
+    assert "!event.shiftKey" in ui_source
+    assert "!event.isComposing" in ui_source
+    assert "event.keyCode !== 229" in ui_source
+    assert "!event.repeat" in ui_source
+    assert "event.preventDefault()" in ui_source
+    assert '"keydown",' in ui_source
+    assert "send_chat_message," in ui_source
+
+
 def test_ui_source_defines_structured_information_architecture(
     ui_source: str,
 ) -> None:
