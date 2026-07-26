@@ -457,6 +457,24 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             border-color: rgba(251, 113, 133, 0.34);
             background: rgba(127, 29, 29, 0.12);
         }
+        .q-dialog__backdrop {
+            background: rgba(2, 6, 23, 0.86) !important;
+            backdrop-filter: blur(8px);
+        }
+        .cae-dialog-card {
+            background: #0d1a2b !important;
+            color: var(--cae-text) !important;
+            border: 1px solid rgba(148, 163, 184, 0.42) !important;
+            box-shadow:
+                0 28px 90px rgba(0, 0, 0, 0.72),
+                0 0 0 1px rgba(56, 189, 248, 0.08) !important;
+            opacity: 1 !important;
+        }
+        .cae-dialog-card.cae-danger {
+            background:
+                linear-gradient(145deg, #241827, #0d1a2b 58%) !important;
+            border-color: rgba(251, 113, 133, 0.58) !important;
+        }
         .cae-chat-stream {
             min-height: 420px;
             max-height: calc(100vh - 330px);
@@ -1582,7 +1600,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     ).props("outline rounded no-caps")
 
     with ui.dialog() as approval_dialog, ui.card().classes(
-        "cae-panel cae-danger min-w-96 max-w-xl p-6 gap-4"
+        "cae-dialog-card cae-danger min-w-96 max-w-xl p-6 gap-4"
     ):
         with ui.row().classes("items-center gap-3"):
             ui.icon("warning").classes("text-negative text-3xl")
@@ -1606,7 +1624,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             ).props("unelevated rounded no-caps")
 
     with ui.dialog() as replacement_dialog, ui.card().classes(
-        "cae-panel cae-danger min-w-96 max-w-xl p-6 gap-4"
+        "cae-dialog-card cae-danger min-w-96 max-w-xl p-6 gap-4"
     ):
         with ui.row().classes("items-center gap-3"):
             ui.icon("warning").classes("text-accent text-3xl")

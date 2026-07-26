@@ -198,6 +198,9 @@ def test_ui_source_defines_structured_information_architecture(
     assert "LOCAL SESSION" not in ui_source
     assert "Codex · 미연결" in ui_source
     assert "Workbench · 확인 전" in ui_source
+    assert ".q-dialog__backdrop" in ui_source
+    assert "background: rgba(2, 6, 23, 0.86)" in ui_source
+    assert "cae-dialog-card cae-danger" in ui_source
     assert '"activity"' in ui_source
     assert '"maintenance"' in ui_source
 
