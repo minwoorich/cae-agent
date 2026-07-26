@@ -7,7 +7,6 @@ UI는 기존 서비스 계층을 직접 호출하며 셸 명령의 텍스트 출
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +21,10 @@ from cae_agent.chat import (
     MessageDetail,
     MessageDetailKind,
     MessageRole,
-    mock_response_chunks,
+)
+from cae_agent.codex_app_server import (
+    CodexAppServerClient,
+    CodexAppServerError,
 )
 from cae_agent.config import AppConfig, prepare_workspace
 from cae_agent.doctor import CheckResult, run_checks
@@ -510,11 +512,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         ui.separator().classes("my-5 opacity-20")
         with ui.card().classes("cae-panel p-4 gap-2"):
             ui.icon("science").classes("text-accent text-2xl")
-            ui.label("모의 대화 모드").classes("font-semibold")
+            ui.label("Codex 읽기 전용 연결").classes("font-semibold")
             ui.label(
-                "현재는 채팅 흐름만 검증합니다. 실제 Codex 연결은 다음 단계입니다."
+                "실제 Codex와 대화하지만 명령 실행과 파일 변경은 "
+                "승인 화면이 추가될 때까지 차단됩니다."
             ).classes("cae-muted text-xs leading-relaxed")
-            ui.badge("NO CODEX EXECUTION", color="accent").props("outline")
+            ui.badge("SAFE READ ONLY", color="positive").props("outline")
 
     @ui.refreshable
     def overview_content() -> None:
@@ -663,6 +666,12 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     chat_attachment_chips: Any
     selected_inputs: set[str] = set()
     chat_session = ChatSession()
+    # 브라우저 세션마다 대화 문맥과 App Server 프로세스를 분리한다.
+    codex_client = CodexAppServerClient(Path.cwd())
+    # 사용자가 탭을 닫으면 해당 브라우저 세션의 자식 프로세스도 종료한다.
+    # 테스트용 UI 대역에는 context가 없을 수 있으므로 실제 NiceGUI에서만 등록한다.
+    if hasattr(ui, "context") and hasattr(ui.context, "client"):
+        ui.context.client.on_disconnect(codex_client.close)
     chat_input: Any
     chat_status: Any
     send_button: Any
@@ -701,7 +710,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             send_button.disable()
             stop_button.enable()
             retry_button.disable()
-            chat_status.set_text("모의 응답을 스트리밍하고 있습니다.")
+            chat_status.set_text("Codex가 답변을 생성하고 있습니다.")
             chat_status.classes(replace="text-sm text-accent")
         else:
             send_button.enable()
@@ -733,7 +742,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         return {
             MessageRole.USER: ("사용자", "person", "cae-message-user"),
             MessageRole.ASSISTANT: (
-                "CAE Agent · 모의 응답",
+                "CAE Agent · Codex",
                 "smart_toy",
                 "cae-message-assistant",
             ),
@@ -761,8 +770,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     "text-xl font-bold"
                 )
                 ui.label(
-                    "이 단계는 채팅 UI를 검증하는 모의 응답입니다. "
-                    "Codex와 Ansys는 실행하지 않습니다."
+                    "Codex가 현재 저장소의 문맥을 읽고 답합니다. "
+                    "안전을 위해 파일 변경과 명령 실행은 아직 허용하지 않습니다."
                 ).classes("cae-muted text-sm text-center max-w-xl")
                 ui.label(
                     "예: 선택한 STEP 파일의 형상 검토 계획을 작성해줘"
@@ -812,47 +821,55 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     ).classes("w-full"):
                         ui.code(detail.content).classes("w-full text-xs")
 
-    async def stream_mock_message(
+    async def stream_codex_message(
         assistant: ChatMessage,
         *,
         prompt: str,
         attachments: tuple[str, ...],
     ) -> None:
-        """모의 응답 조각을 누적해 실제 스트리밍과 같은 화면 상태를 만든다."""
+        """Codex App Server의 실제 텍스트 이벤트를 화면에 순서대로 누적한다."""
         try:
-            for chunk in mock_response_chunks(
+            attachment_paths = tuple(
+                config.workspace.input_dir / name for name in attachments
+            )
+            async for event in codex_client.stream_turn(
                 prompt,
-                attachments=attachments,
+                attachments=attachment_paths,
             ):
-                await asyncio.sleep(0.18)
                 if chat_session.status is not ChatStatus.STREAMING:
                     return
-                chat_session.append_stream(assistant.message_id, chunk)
-                chat_messages.refresh()
+                if event.kind == "delta":
+                    chat_session.append_stream(
+                        assistant.message_id,
+                        event.text,
+                    )
+                    chat_messages.refresh()
             chat_session.complete(
                 assistant.message_id,
                 details=(
                     MessageDetail(
                         kind=MessageDetailKind.COMMAND,
-                        title="모의 실행 상태",
+                        title="현재 안전 모드",
                         content=(
-                            "Codex 명령 실행 없음\n"
+                            "Codex App Server 연결됨\n"
+                            "작업공간 읽기 전용\n"
+                            "명령·파일 변경 승인 자동 거절\n"
                             "Ansys 명령 실행 없음\n"
                             "모델 변경 없음"
                         ),
                     ),
                     MessageDetail(
                         kind=MessageDetailKind.LOG,
-                        title="모의 이벤트 로그",
+                        title="Codex 연결 정보",
                         content=(
-                            "message.accepted\n"
-                            "response.streaming\n"
-                            "response.completed"
+                            f"thread: {codex_client.thread_id}\n"
+                            f"turn: {codex_client.turn_id}\n"
+                            "transport: local stdio JSONL"
                         ),
                     ),
                 ),
             )
-        except ChatError as error:
+        except (ChatError, CodexAppServerError) as error:
             if chat_session.status is ChatStatus.STREAMING:
                 chat_session.fail(assistant.message_id, str(error))
         finally:
@@ -860,7 +877,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             update_chat_controls()
 
     async def send_chat_message() -> None:
-        """입력값과 선택 첨부로 새 모의 응답 스트리밍을 시작한다."""
+        """입력값과 선택 첨부를 실제 Codex 대화 스레드로 전송한다."""
         prompt = str(chat_input.value or "")
         attachments = tuple(sorted(selected_inputs))
         try:
@@ -876,24 +893,25 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         chat_input.value = ""
         chat_messages.refresh()
         update_chat_controls()
-        await stream_mock_message(
+        await stream_codex_message(
             assistant,
             prompt=prompt,
             attachments=attachments,
         )
 
-    def stop_chat_message() -> None:
-        """현재 모의 스트리밍을 중지하고 이미 받은 응답은 보존한다."""
+    async def stop_chat_message() -> None:
+        """현재 Codex 턴을 중단하고 이미 받은 응답 텍스트는 보존한다."""
         try:
+            await codex_client.interrupt()
             chat_session.stop()
-        except ChatError as error:
+        except (ChatError, CodexAppServerError) as error:
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
         chat_messages.refresh()
         update_chat_controls()
 
     async def retry_chat_message() -> None:
-        """마지막 사용자 요청과 첨부를 새 모의 응답으로 다시 실행한다."""
+        """마지막 사용자 요청과 첨부를 같은 Codex 스레드에서 다시 실행한다."""
         try:
             assistant = chat_session.retry_last()
         except ChatError as error:
@@ -903,7 +921,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
         user_message = chat_session.messages[-2]
         chat_messages.refresh()
         update_chat_controls()
-        await stream_mock_message(
+        await stream_codex_message(
             assistant,
             prompt=user_message.content,
             attachments=user_message.attachments,
@@ -1146,8 +1164,8 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 section_heading(
                     "CONVERSATION",
                     "CAE Agent 대화",
-                    "현재는 메시지 흐름과 첨부 표시를 검증하는 모의 "
-                    "스트리밍입니다. Codex와 Ansys는 실행하지 않습니다.",
+                    "로컬 Codex App Server와 실제로 대화합니다. 현재 단계는 "
+                    "읽기 전용이며 명령 실행과 파일 변경은 승인되지 않습니다.",
                 )
                 with ui.row().classes(
                     "w-full items-center justify-between gap-3 flex-wrap"
@@ -1157,7 +1175,10 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                             f"LOCAL SESSION {chat_session.session_id}",
                             color="primary",
                         ).props("outline")
-                        ui.badge("MOCK MODE", color="accent").props("outline")
+                        ui.badge(
+                            "CODEX · READ ONLY",
+                            color="positive",
+                        ).props("outline")
                     ui.button(
                         "입력 파일 선택",
                         icon="attach_file",
