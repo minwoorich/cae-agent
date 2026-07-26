@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from cae_agent.attachments import AttachmentKind, classify_attachment
+from cae_agent.approval import (
+    ApprovalRequest,
+    append_approval_audit,
+    build_approval_request,
+)
 
 
 class CodexAppServerError(RuntimeError):
@@ -28,6 +33,7 @@ class CodexStreamEvent:
     kind: str
     text: str = ""
     status: str = ""
+    approval: ApprovalRequest | None = None
 
 
 class CodexAppServerClient:
@@ -47,10 +53,12 @@ class CodexAppServerClient:
         *,
         executable: str = "codex",
         request_timeout: float = 30.0,
+        audit_path: Path | None = None,
     ) -> None:
         self.workspace = workspace.resolve()
         self.executable = executable
         self.request_timeout = request_timeout
+        self.audit_path = audit_path
         self.process: asyncio.subprocess.Process | None = None
         self.thread_id: str | None = None
         self.turn_id: str | None = None
@@ -58,6 +66,8 @@ class CodexAppServerClient:
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._reader_task: asyncio.Task[None] | None = None
+        self._approvals: dict[int, ApprovalRequest] = {}
+        self._approved_items: dict[str, ApprovalRequest] = {}
 
     @property
     def connected(self) -> bool:
@@ -69,7 +79,7 @@ class CodexAppServerClient:
         )
 
     async def start(self) -> None:
-        """App Server를 시작하고 initialize 및 읽기 전용 스레드를 준비한다."""
+        """App Server를 시작하고 사용자 승인 기반 작업공간 스레드를 준비한다."""
         if self.connected:
             return
         if shutil.which(self.executable) is None:
@@ -110,10 +120,12 @@ class CodexAppServerClient:
                 {
                     "cwd": str(self.workspace),
                     "approvalPolicy": "on-request",
+                    # 기본 권한은 계속 읽기 전용으로 두고, 쓰기·실행은 아래 승인
+                    # 요청 한 건에만 일회성으로 허용한다.
                     "sandbox": "read-only",
                     "developerInstructions": (
-                        "사용자에게 한국어로 답하세요. 현재 UI는 안전한 읽기 전용 "
-                        "미리보기 단계이므로 파일 변경이나 명령 실행을 시도하지 마세요."
+                        "사용자에게 한국어로 답하세요. 명령 실행이나 파일 변경은 "
+                        "반드시 App Server 승인 요청을 통해 사용자 확인을 받으세요."
                     ),
                 },
             )
@@ -177,6 +189,10 @@ class CodexAppServerClient:
                 continue
             if method == "item/agentMessage/delta":
                 yield CodexStreamEvent(kind="delta", text=str(params["delta"]))
+            elif method == "client/approvalRequested":
+                approval = params.get("approval")
+                if isinstance(approval, ApprovalRequest):
+                    yield CodexStreamEvent(kind="approval", approval=approval)
             elif method == "error" and not params.get("willRetry", False):
                 error = params.get("error") or {}
                 raise CodexAppServerError(
@@ -192,6 +208,31 @@ class CodexAppServerClient:
                     )
                 yield CodexStreamEvent(kind="completed", status=status)
                 return
+
+    async def resolve_approval(
+        self,
+        request_id: int,
+        fingerprint: str,
+        *,
+        approved: bool,
+    ) -> None:
+        """화면에 표시한 동일 요청에 한해서만 일회성 승인 결과를 보낸다."""
+        request = self._approvals.pop(request_id, None)
+        if request is None:
+            raise CodexAppServerError("이미 처리됐거나 만료된 승인 요청입니다.")
+        if request.fingerprint != fingerprint:
+            await self._write(
+                {"id": request_id, "result": {"decision": "decline"}}
+            )
+            self._audit(request, "invalidated", "승인 대상이 변경되었습니다.")
+            raise CodexAppServerError(
+                "승인 대상이 변경되어 이전 승인을 무효화했습니다."
+            )
+        decision = "accept" if approved else "decline"
+        await self._write({"id": request_id, "result": {"decision": decision}})
+        if approved:
+            self._approved_items[request.item_id] = request
+        self._audit(request, "approved" if approved else "declined")
 
     async def interrupt(self) -> None:
         """현재 응답이 진행 중이면 App Server에 중단 요청을 보낸다."""
@@ -270,15 +311,50 @@ class CodexAppServerClient:
                         )
                     else:
                         future.set_result(message.get("result") or {})
+                elif request_id is not None and message.get("method") in {
+                    "item/commandExecution/requestApproval",
+                    "item/fileChange/requestApproval",
+                }:
+                    approval = build_approval_request(
+                        int(request_id),
+                        str(message["method"]),
+                        message.get("params") or {},
+                    )
+                    self._approvals[int(request_id)] = approval
+                    self._audit(approval, "requested")
+                    await self._events.put(
+                        {
+                            "method": "client/approvalRequested",
+                            "params": {
+                                "turnId": (message.get("params") or {}).get(
+                                    "turnId"
+                                ),
+                                "approval": approval,
+                            },
+                        }
+                    )
                 elif (
                     request_id is not None
                     and message.get("method") in self._APPROVAL_METHODS
                 ):
-                    # 승인 카드가 추가되는 다음 이슈 전까지 모든 실행·변경을 거절한다.
+                    # 광범위 권한과 레거시 승인은 세부 범위를 안전하게 표시할 수
+                    # 없으므로 현재 버전에서는 계속 거절한다.
                     await self._write(
                         {"id": request_id, "result": {"decision": "decline"}}
                     )
                 elif "method" in message:
+                    if message.get("method") == "item/completed":
+                        item = (message.get("params") or {}).get("item") or {}
+                        approved = self._approved_items.pop(
+                            str(item.get("id") or ""),
+                            None,
+                        )
+                        if approved is not None:
+                            self._audit(
+                                approved,
+                                "completed",
+                                str(item.get("status") or "완료"),
+                            )
                     await self._events.put(message)
         except asyncio.CancelledError:
             raise
@@ -293,6 +369,21 @@ class CodexAppServerClient:
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(CodexAppServerError(message))
+
+    def _audit(
+        self,
+        request: ApprovalRequest,
+        event: str,
+        detail: str = "",
+    ) -> None:
+        """감사 경로가 설정된 UI 실행에서만 승인 이벤트를 기록한다."""
+        if self.audit_path is not None:
+            append_approval_audit(
+                self.audit_path,
+                request,
+                event,
+                detail=detail,
+            )
 
     @staticmethod
     def _rpc_error_message(error: Any) -> str:
