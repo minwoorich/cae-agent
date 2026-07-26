@@ -39,6 +39,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\setup.ps1 -WithAnsys -WithDev
 ```
 
+환경·세션·작업공간 상태를 브라우저 대시보드에서 확인하려면 `-WithUI`를
+함께 지정합니다.
+
+```powershell
+.\setup.ps1 -WithAnsys -WithUI
+.\.venv\Scripts\cae-agent.exe ui
+```
+
+UI는 localhost에만 열리며 모델 변경 버튼을 제공하지 않습니다. 자세한 사용법과
+정리 승인 범위는 [로컬 대시보드 가이드](ui.ko.md)를 참고하세요.
+
 실제 파일이나 패키지를 변경하지 않고 계획만 확인할 수도 있습니다.
 
 ```powershell
@@ -51,6 +62,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 |---|---|
 | `-WithAnsys` | PyWorkbench와 PyMechanical 선택 의존성을 설치합니다. |
 | `-WithDev` | pytest 같은 개발·테스트 의존성을 설치합니다. |
+| `-WithUI` | localhost NiceGUI 대시보드 의존성을 설치합니다. |
 | `-PythonExecutable PATH` | 자동 탐색 대신 지정한 Python을 사용합니다. |
 | `-VirtualEnvironment PATH` | 저장소 내부의 다른 가상환경 경로를 사용합니다. |
 | `-SkipPipUpgrade` | 네트워크가 제한된 환경에서 pip 업그레이드를 생략합니다. |

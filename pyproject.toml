@@ -34,6 +34,9 @@ ansys = [
   "ansys-mechanical-core>=0.13.0,<0.14",
   "ansys-workbench-core>=0.14.0,<0.15",
 ]
+ui = [
+  "nicegui>=3.0,<4",
+]
 
 [project.scripts]
 cae-agent = "cae_agent.cli:main"
