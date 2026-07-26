@@ -14,8 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from cae_agent.agents.base import AgentError, GeneratedScript
-from cae_agent.config import AppConfig, prepare_workspace
+from cae_agent.agent.providers.base import AgentError, GeneratedScript
+from cae_agent.core.config import AppConfig, prepare_workspace
 
 
 TARGETS = {"spaceclaim", "mechanical"}

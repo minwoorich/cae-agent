@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.config import load_config
-from cae_agent.workbench import (
+from cae_agent.core.config import load_config
+from cae_agent.ansys.workbench import (
     WorkbenchError,
     WorkbenchSession,
     connect_session,
@@ -142,7 +142,7 @@ def test_serve_writes_and_cleans_session_metadata(tmp_path: Path) -> None:
 
 
 def test_missing_script_is_rejected_before_connecting(tmp_path: Path) -> None:
-    from cae_agent.workbench import run_script
+    from cae_agent.ansys.workbench import run_script
 
     config = load_config(current_directory=tmp_path)
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from cae_agent.chat import (
+from cae_agent.agent.chat import (
     ChatError,
     ChatSession,
     ChatStatus,

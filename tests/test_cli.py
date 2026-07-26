@@ -6,7 +6,7 @@ import pytest
 
 from cae_agent import __version__
 from cae_agent.cli import main
-from cae_agent.doctor import CheckResult, CheckStatus
+from cae_agent.core.doctor import CheckResult, CheckStatus
 
 
 def test_cli_accepts_no_arguments() -> None:

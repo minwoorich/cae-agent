@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.attachments import AttachmentKind, classify_attachment
+from cae_agent.agent.attachments import AttachmentKind, classify_attachment
 
 
 @pytest.mark.parametrize(

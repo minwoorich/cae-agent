@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.config import load_config, prepare_workspace
-from cae_agent.workspace import (
+from cae_agent.core.config import load_config, prepare_workspace
+from cae_agent.core.workspace import (
     WorkspaceError,
     clean_workspace,
     cleanup_candidates,

@@ -15,10 +15,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from cae_agent.agents import CodexProvider, GeneratedScript
-from cae_agent.config import AppConfig, prepare_workspace
-from cae_agent.mechanical import run_mechanical_script
-from cae_agent.spaceclaim import run_spaceclaim_script
+from cae_agent.agent.providers import CodexProvider, GeneratedScript
+from cae_agent.core.config import AppConfig, prepare_workspace
+from cae_agent.ansys.mechanical import run_mechanical_script
+from cae_agent.ansys.spaceclaim import run_spaceclaim_script
 
 
 class RepairError(RuntimeError):

@@ -14,6 +14,7 @@ provider.
 - [Codex 자연어 인터페이스 가이드](docs/codex-first.ko.md)
 - [로컬 상태·승인 대시보드](docs/ui.ko.md)
 - [UI 정보 구조와 디자인 시스템](docs/ui-design.ko.md)
+- [관심사별 코드 구조와 의존 방향](docs/architecture.ko.md)
 - [한국어 시작 가이드](docs/getting-started.ko.md)
 - [한국어 문제 해결 가이드](docs/troubleshooting.ko.md)
 - [전력반도체 열해석 공식 예제](examples/power-semiconductor-thermal/README.md)

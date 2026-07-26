@@ -8,8 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from cae_agent.config import AppConfig, prepare_workspace
-from cae_agent.workbench import connect_session
+from cae_agent.core.config import AppConfig, prepare_workspace
+from cae_agent.ansys.workbench import connect_session
 
 
 class ProjectError(RuntimeError):

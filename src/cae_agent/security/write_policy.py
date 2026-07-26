@@ -10,8 +10,8 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from cae_agent.approval import ApprovalRequest, ApprovalRisk
-from cae_agent.config import WorkspaceConfig
+from cae_agent.security.approval import ApprovalRequest, ApprovalRisk
+from cae_agent.core.config import WorkspaceConfig
 
 
 class ApprovalDecision(StrEnum):

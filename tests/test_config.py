@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.config import (
+from cae_agent.core.config import (
     ConfigError,
     load_config,
     prepare_workspace,

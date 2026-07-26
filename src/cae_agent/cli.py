@@ -13,8 +13,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from cae_agent import __version__
-from cae_agent.agents import AgentError, CodexProvider
-from cae_agent.config import (
+from cae_agent.agent.providers import AgentError, CodexProvider
+from cae_agent.core.config import (
     DEFAULT_CONFIG_NAME,
     ConfigError,
     load_config,
@@ -22,19 +22,19 @@ from cae_agent.config import (
     render_config_json,
     render_config_text,
 )
-from cae_agent.doctor import CheckStatus, render_json, render_text, run_checks
-from cae_agent.mechanical import (
+from cae_agent.core.doctor import CheckStatus, render_json, render_text, run_checks
+from cae_agent.ansys.mechanical import (
     MechanicalError,
     connect_mechanical,
     mechanical_status,
     run_mechanical_script,
     start_mechanical_session,
 )
-from cae_agent.project import ProjectError, create_project
-from cae_agent.repair import RepairError, run_repair_loop
-from cae_agent.spaceclaim import SpaceClaimError, run_spaceclaim_script
+from cae_agent.ansys.project import ProjectError, create_project
+from cae_agent.agent.repair import RepairError, run_repair_loop
+from cae_agent.ansys.spaceclaim import SpaceClaimError, run_spaceclaim_script
 from cae_agent.ui import UIError, launch_ui
-from cae_agent.workbench import (
+from cae_agent.ansys.workbench import (
     WorkbenchError,
     connect_session,
     load_session,
@@ -44,7 +44,7 @@ from cae_agent.workbench import (
     serve_session,
     workbench_paths,
 )
-from cae_agent.workspace import (
+from cae_agent.core.workspace import (
     WorkspaceError,
     clean_workspace,
     render_cleanup_result,

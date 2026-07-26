@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from cae_agent.doctor import (
+from cae_agent.core.doctor import (
     CheckResult,
     CheckStatus,
     check_command,

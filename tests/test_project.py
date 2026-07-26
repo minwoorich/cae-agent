@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.config import load_config
-from cae_agent.project import (
+from cae_agent.core.config import load_config
+from cae_agent.ansys.project import (
     ProjectError,
     build_create_project_journal,
     create_project,

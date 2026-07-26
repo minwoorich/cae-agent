@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.approval import ApprovalRisk, ApprovalRequest
-from cae_agent.config import WorkspaceConfig
-from cae_agent.write_policy import (
+from cae_agent.security.approval import ApprovalRisk, ApprovalRequest
+from cae_agent.core.config import WorkspaceConfig
+from cae_agent.security.write_policy import (
     ApprovalDecision,
     approval_decision,
     is_generated_write_target,
@@ -60,7 +60,7 @@ def test_only_generated_directory_is_auto_approved(tmp_path: Path) -> None:
         "results",
         "logs",
         ".runtime",
-        "../src/cae_agent/ui.py",
+        "../src/cae_agent/ui/dashboard.py",
         "",
     ],
 )

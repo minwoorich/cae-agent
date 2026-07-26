@@ -11,21 +11,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cae_agent.config import AppConfig
-from cae_agent.workbench import (
+from cae_agent.core.config import AppConfig
+from cae_agent.ansys.workbench import (
     WorkbenchError,
     connect_session,
     load_session,
     ping_session,
     workbench_paths,
 )
-from cae_agent.workspace import (
+from cae_agent.core.workspace import (
     CleanupResult,
     WorkspaceError,
     clean_workspace,
 )
-from cae_agent.ui_chat import build_chat_panel
-from cae_agent.ui_files import (
+from cae_agent.ui.chat import build_chat_panel
+from cae_agent.ui.files import (
     ALLOWED_UPLOAD_EXTENSIONS,
     MAX_UPLOAD_SIZE_BYTES,
     DashboardSnapshot,
@@ -40,7 +40,7 @@ from cae_agent.ui_files import (
     replace_input_upload,
     store_input_upload,
 )
-from cae_agent.ui_styles import apply_ui_theme
+from cae_agent.ui.styles import apply_ui_theme
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
-from cae_agent.config import AppConfig, WorkspaceConfig, prepare_workspace
-from cae_agent.workbench import workbench_paths
+from cae_agent.core.config import AppConfig, WorkspaceConfig, prepare_workspace
+from cae_agent.ansys.workbench import workbench_paths
 
 
 class WorkspaceError(RuntimeError):

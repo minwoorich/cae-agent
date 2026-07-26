@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from cae_agent.agents import AgentError, CodexProvider
-from cae_agent.agents.codex import build_prompt
-from cae_agent.config import load_config
+from cae_agent.agent.providers import AgentError, CodexProvider
+from cae_agent.agent.providers.codex import build_prompt
+from cae_agent.core.config import load_config
 
 
 def test_prompt_contains_target_version_and_safety_constraints() -> None:
