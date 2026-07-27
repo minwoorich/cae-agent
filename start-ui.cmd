@@ -1,8 +1,19 @@
 @echo off
 setlocal
+chcp 65001 >nul
 
 rem 어느 위치에서 실행하더라도 저장소 루트에서 UI를 시작합니다.
 cd /d "%~dp0"
+
+if not exist ".venv\Scripts\cae-agent.exe" (
+    echo CAE Agent 실행 파일을 찾을 수 없습니다.
+    echo 먼저 PowerShell에서 다음 명령으로 설치를 완료하세요.
+    echo.
+    echo .\setup.ps1 -WithAnsys -WithUI
+    echo.
+    pause
+    exit /b 1
+)
 
 set "UI_HOST=127.0.0.1"
 set "UI_PORT=8765"
