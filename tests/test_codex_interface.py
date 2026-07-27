@@ -72,7 +72,9 @@ def test_readme_prioritizes_codex_first_guide() -> None:
     """README가 직접 명령보다 자연어 사용자 경로를 먼저 안내해야 한다."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    codex_section = readme.index("## Codex-first quick start")
-    setup_section = readme.index("## Development setup")
-    assert codex_section < setup_section
+    # README 전체를 한국어화해도 처음 접하는 사용자의 UI·자연어 작업 흐름이
+    # 개발자나 고급 사용자를 위한 직접 CLI 명령보다 먼저 보여야 한다.
+    user_section = readme.index("## 처음 사용하는 사람을 위한 전체 흐름")
+    cli_section = readme.index("## 고급 사용자용 CLI")
+    assert user_section < cli_section
     assert "docs/codex-first.ko.md" in readme
