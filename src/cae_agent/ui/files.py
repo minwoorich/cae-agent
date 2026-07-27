@@ -282,3 +282,33 @@ def replace_input_upload(
     with audit_path.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write(json.dumps(record, ensure_ascii=False) + "\n")
     return StoredUpload(path=target, size_bytes=len(pending.content))
+
+
+def delete_input_file(config: AppConfig, filename: str) -> str:
+    """채팅 UI에서 선택한 입력 파일 하나만 작업공간 경계 안에서 삭제한다."""
+    target = _validated_upload_target(
+        config,
+        filename=filename,
+        content=b"delete-check",
+    )
+    input_directory = config.workspace.input_dir.resolve()
+    resolved = target.resolve()
+    if resolved.parent != input_directory or target.is_symlink():
+        raise UIError("입력 폴더의 일반 파일만 삭제할 수 있습니다.")
+    try:
+        target.unlink()
+    except FileNotFoundError as error:
+        raise UIError("이미 삭제된 입력 파일입니다.") from error
+    except OSError as error:
+        raise UIError(f"입력 파일을 삭제할 수 없습니다: {error}") from error
+
+    audit_path = config.workspace.logs_dir / "input-deletions.jsonl"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "input_deleted",
+        "filename": target.name,
+    }
+    with audit_path.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return target.name

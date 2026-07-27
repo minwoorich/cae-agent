@@ -13,6 +13,7 @@ from cae_agent.ui import (
     UploadConflict,
     UIError,
     dashboard_snapshot,
+    delete_input_file,
     input_file_summaries,
     launch_ui,
     probe_workbench_connection,
@@ -33,6 +34,7 @@ def ui_source() -> str:
             "dashboard.py",
             "chat.py",
             "files.py",
+            "input_library.py",
             "session_menu.py",
             "styles.py",
         )
@@ -200,6 +202,9 @@ def test_ui_source_keeps_preview_and_approval_separate(
     assert "stream_codex_message" not in upload_handler
     assert "cae-hidden-upload" in ui_source
     assert 'run_method("pickFiles")' in ui_source
+    assert "build_input_file_library" in ui_source
+    assert "입력 파일 삭제" in ui_source
+    assert "delete_input_file(config, name)" in ui_source
 
 
 def test_ui_source_auto_scrolls_stream_without_interrupting_history_reading(
@@ -337,6 +342,33 @@ def test_duplicate_upload_requires_explicit_replacement(
     assert replaced.path.read_bytes() == b"replacement"
     audit = config.workspace.logs_dir / "upload-replacements.jsonl"
     assert '"event": "input_replaced"' in audit.read_text(encoding="utf-8")
+
+
+def test_delete_input_file_removes_only_input_file_and_writes_audit(
+    tmp_path: Path,
+) -> None:
+    """채팅 UI 삭제 버튼은 입력 폴더의 지정 파일 하나만 삭제해야 한다."""
+    config = load_config(current_directory=tmp_path)
+    stored = store_input_upload(
+        config,
+        filename="remove.step",
+        content=b"geometry",
+    )
+
+    deleted = delete_input_file(config, "remove.step")
+
+    assert deleted == "remove.step"
+    assert not stored.path.exists()
+    audit = config.workspace.logs_dir / "input-deletions.jsonl"
+    assert '"event": "input_deleted"' in audit.read_text(encoding="utf-8")
+
+
+def test_delete_input_file_rejects_path_escape(tmp_path: Path) -> None:
+    """삭제 요청도 업로드와 같은 파일명 검증을 통과해야 한다."""
+    config = load_config(current_directory=tmp_path)
+
+    with pytest.raises(UIError, match="폴더 경로"):
+        delete_input_file(config, "../remove.step")
 
 
 def test_replacement_is_invalidated_when_original_changes(tmp_path: Path) -> None:

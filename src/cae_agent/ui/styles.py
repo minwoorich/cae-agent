@@ -228,6 +228,22 @@ def apply_ui_theme(ui: Any) -> None:
             border-color: rgba(148, 163, 184, 0.56);
         }
         .cae-hidden-upload { display: none !important; }
+        .cae-input-library {
+            border-top: 1px solid rgba(148, 163, 184, 0.18);
+            margin-top: 0.15rem;
+            padding-top: 0.15rem;
+        }
+        .cae-input-library .q-expansion-item__container {
+            background: transparent;
+            border-radius: 14px;
+        }
+        .cae-input-library-row {
+            border-radius: 12px;
+            padding: 0.25rem 0.35rem;
+        }
+        .cae-input-library-row:hover {
+            background: rgba(148, 163, 184, 0.08);
+        }
         .cae-chat-input .q-field__control {
             min-height: 42px !important;
             padding: 0 0.35rem !important;
