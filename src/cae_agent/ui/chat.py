@@ -12,7 +12,7 @@ from cae_agent.agent.attachments import classify_attachment
 from cae_agent.security.approval import ApprovalRequest, ApprovalRisk
 from cae_agent.agent.chat import (
     ChatError, ChatMessage, ChatSession, ChatStatus,
-    MessageDetail, MessageDetailKind, MessageRole, load_chat_session,
+    MessageDetail, MessageDetailKind, MessageRole, load_chat_session_or_new,
     save_chat_session,
 )
 from cae_agent.agent.codex_app_server import CodexAppServerClient, CodexAppServerError
@@ -60,10 +60,7 @@ def build_chat_panel(
     }
     selected_inputs: set[str] = set()
     chat_session_file = config.workspace.root / ".runtime" / "chat" / "session.json"
-    try:
-        chat_session = load_chat_session(chat_session_file)
-    except ChatError:
-        chat_session = ChatSession()
+    chat_session = load_chat_session_or_new(chat_session_file)
 
     def persist_chat_session() -> None:
         """UI 재시작 후에도 이전 대화를 다시 보여주도록 로컬 파일에 저장한다."""
@@ -861,12 +858,6 @@ def build_chat_panel(
             replacement_dialog.close()
             overview_refresh()
             refresh_attachment_selection()
-
-    feedback: Any
-    retention: Any
-    candidate_box: Any
-    approval_summary: Any
-
 
     with ui.dialog() as replacement_dialog, ui.card().classes(
         "cae-dialog-card cae-danger min-w-96 max-w-xl p-6 gap-4"

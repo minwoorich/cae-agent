@@ -265,6 +265,14 @@ def load_chat_session(path: Path) -> ChatSession:
     return ChatSession.from_dict(data)
 
 
+def load_chat_session_or_new(path: Path) -> ChatSession:
+    """저장 파일이 손상돼도 UI가 시작되도록 새 채팅 세션으로 대체한다."""
+    try:
+        return load_chat_session(path)
+    except ChatError:
+        return ChatSession()
+
+
 def mock_response_chunks(
     prompt: str,
     *,
