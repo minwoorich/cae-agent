@@ -12,7 +12,8 @@ from cae_agent.agent.attachments import classify_attachment
 from cae_agent.security.approval import ApprovalRequest, ApprovalRisk
 from cae_agent.agent.chat import (
     ChatError, ChatMessage, ChatSession, ChatStatus,
-    MessageDetail, MessageDetailKind, MessageRole,
+    MessageDetail, MessageDetailKind, MessageRole, load_chat_session,
+    save_chat_session,
 )
 from cae_agent.agent.codex_app_server import CodexAppServerClient, CodexAppServerError
 from cae_agent.core.config import AppConfig
@@ -58,7 +59,15 @@ def build_chat_panel(
         "pending": None
     }
     selected_inputs: set[str] = set()
-    chat_session = ChatSession()
+    chat_session_file = config.workspace.root / ".runtime" / "chat" / "session.json"
+    try:
+        chat_session = load_chat_session(chat_session_file)
+    except ChatError:
+        chat_session = ChatSession()
+
+    def persist_chat_session() -> None:
+        """UI 재시작 후에도 이전 대화를 다시 보여주도록 로컬 파일에 저장한다."""
+        save_chat_session(chat_session_file, chat_session)
     # 브라우저 세션마다 대화 문맥과 App Server 프로세스를 분리한다.
     codex_client = CodexAppServerClient(
         config.workspace.root,
@@ -568,6 +577,7 @@ def build_chat_panel(
                         assistant.message_id,
                         event.text,
                     )
+                    persist_chat_session()
                     chat_messages.refresh()
                     await scroll_chat_to_latest()
                 elif event.kind == "progress":
@@ -682,6 +692,7 @@ def build_chat_panel(
                 assistant.message_id,
                 final_status="completed",
             )
+            persist_chat_session()
         except (ChatError, CodexAppServerError) as error:
             refresh_codex_connection_badge(error=str(error))
             finalize_progress_steps(
@@ -690,6 +701,7 @@ def build_chat_panel(
             )
             if chat_session.status is ChatStatus.STREAMING:
                 chat_session.fail(assistant.message_id, str(error))
+                persist_chat_session()
         finally:
             chat_messages.refresh()
             update_chat_controls()
@@ -709,6 +721,7 @@ def build_chat_panel(
             chat_status.classes(replace="text-sm text-negative")
             return
 
+        persist_chat_session()
         chat_input.value = ""
         progress_steps[assistant.message_id] = {
             "turn": ChatProgressStep(
@@ -738,6 +751,7 @@ def build_chat_panel(
                 assistant_id=chat_session.messages[-1].message_id,
                 final_status="stopped",
             )
+            persist_chat_session()
         except (ChatError, CodexAppServerError) as error:
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
@@ -752,6 +766,7 @@ def build_chat_panel(
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
             return
+        persist_chat_session()
         progress_steps[assistant.message_id] = {
             "turn": ChatProgressStep(
                 step_id="turn",

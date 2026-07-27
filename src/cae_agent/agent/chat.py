@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 
@@ -169,6 +172,97 @@ class ChatSession:
             ):
                 return message
         raise ChatError("활성 assistant 메시지를 찾을 수 없습니다.")
+
+    def to_dict(self) -> dict[str, Any]:
+        """대화 목록을 재시작 후 복원할 수 있는 JSON 호환 값으로 변환한다."""
+        return {
+            "version": 1,
+            "session_id": self.session_id,
+            "messages": [
+                {
+                    "message_id": message.message_id,
+                    "role": message.role.value,
+                    "content": message.content,
+                    "attachments": list(message.attachments),
+                    "created_at": message.created_at.isoformat(),
+                    "details": [
+                        {
+                            "kind": detail.kind.value,
+                            "title": detail.title,
+                            "content": detail.content,
+                        }
+                        for detail in message.details
+                    ],
+                }
+                for message in self.messages
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ChatSession":
+        """저장된 JSON 값을 안전한 대기 상태의 채팅 세션으로 복원한다."""
+        session = cls(session_id=str(data.get("session_id") or uuid4().hex[:12]))
+        raw_messages = data.get("messages", [])
+        if not isinstance(raw_messages, list):
+            raise ChatError("저장된 대화 형식이 올바르지 않습니다.")
+        for raw in raw_messages:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                role = MessageRole(str(raw["role"]))
+                created_at = datetime.fromisoformat(str(raw["created_at"]))
+            except (KeyError, TypeError, ValueError) as error:
+                raise ChatError("저장된 메시지를 읽을 수 없습니다.") from error
+            details: list[MessageDetail] = []
+            for raw_detail in raw.get("details", []):
+                if not isinstance(raw_detail, dict):
+                    continue
+                details.append(
+                    MessageDetail(
+                        kind=MessageDetailKind(str(raw_detail["kind"])),
+                        title=str(raw_detail["title"]),
+                        content=str(raw_detail["content"]),
+                    )
+                )
+            session.messages.append(
+                ChatMessage(
+                    role=role,
+                    content=str(raw.get("content") or ""),
+                    attachments=tuple(
+                        str(item) for item in raw.get("attachments", [])
+                    ),
+                    details=tuple(details),
+                    created_at=created_at,
+                    message_id=str(raw.get("message_id") or uuid4().hex),
+                )
+            )
+        # 실행 중이던 턴은 재접속 후 이어 붙일 수 없으므로 대화 본문만 보존하고
+        # 입력 가능한 상태로 되돌린다.
+        session.status = ChatStatus.IDLE
+        session.active_assistant_id = None
+        return session
+
+
+def save_chat_session(path: Path, session: ChatSession) -> None:
+    """현재 채팅 세션을 작업공간 런타임 파일로 저장한다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(session.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_chat_session(path: Path) -> ChatSession:
+    """저장된 채팅 세션이 있으면 읽고 없으면 새 세션을 만든다."""
+    if not path.is_file():
+        return ChatSession()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ChatError(f"저장된 대화를 읽을 수 없습니다: {error}") from error
+    if not isinstance(data, dict):
+        raise ChatError("저장된 대화 형식이 올바르지 않습니다.")
+    return ChatSession.from_dict(data)
 
 
 def mock_response_chunks(
