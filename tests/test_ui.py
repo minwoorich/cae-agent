@@ -281,6 +281,12 @@ def test_ui_source_defines_structured_information_architecture(
     assert "확인 모드로 돌아옵니다." in ui_source
     assert '"activity"' in ui_source
     assert '"maintenance"' in ui_source
+    assert "결과 기록" in ui_source
+    assert "파일 관리" in ui_source
+    assert "입력 파일 관리" in ui_source
+    assert "delete_input_from_maintenance" in ui_source
+    assert "folder_managed" in ui_source
+    assert "작업공간 유지관리" not in ui_source
 
 
 def test_missing_nicegui_reports_optional_install(

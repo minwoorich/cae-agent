@@ -35,6 +35,7 @@ from cae_agent.ui.files import (
     UIError,
     UploadConflict,
     dashboard_snapshot,
+    delete_input_file,
     format_bytes as _format_bytes,
     input_file_summaries,
     replace_input_upload,
@@ -87,7 +88,7 @@ def probe_workbench_connection(config: AppConfig) -> ServiceConnection:
 def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
     """주입된 NiceGUI 모듈에 구조화된 로컬 CAE 대시보드를 등록한다.
 
-    화면은 개요, 입력 파일, 활동과 유지관리로 분리한다. 현재 단계에서는
+    화면은 개요, 대화, 결과 기록과 파일 관리로 분리한다. 현재 단계에서는
     대화 기능을 구현한 것처럼 보이지 않도록 다음 단계임을 명확히 알리고,
     사용자가 가장 먼저 필요한 업로드와 환경 상태에 빠르게 접근하게 한다.
     """
@@ -182,13 +183,13 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             )
             activity_tab = ui.tab(
                 "activity",
-                label="로그와 결과",
+                label="결과 기록",
                 icon="monitor_heart",
             )
             maintenance_tab = ui.tab(
                 "maintenance",
-                label="유지관리",
-                icon="settings_suggest",
+                label="파일 관리",
+                icon="folder_managed",
             )
         ui.separator().classes("my-5 opacity-20")
         with ui.card().classes("cae-panel p-4 gap-2"):
@@ -369,6 +370,52 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                     icon="analytics",
                 )
 
+    @ui.refreshable
+    def maintenance_input_files() -> None:
+        """작업공간 입력 파일을 파일 관리 화면에서 조회하고 삭제한다."""
+        files = input_file_summaries(config.workspace.input_dir)
+        if not files:
+            with ui.column().classes("items-center w-full py-8 gap-2"):
+                ui.icon("folder_open").classes("text-3xl cae-muted")
+                ui.label("관리할 입력 파일이 없습니다.").classes(
+                    "cae-muted text-sm"
+                )
+            return
+        for item in files:
+            with ui.row().classes(
+                "cae-file-row w-full items-center justify-between no-wrap"
+            ):
+                with ui.row().classes("items-center gap-3 min-w-0 no-wrap"):
+                    ui.icon("description").classes("text-primary text-xl")
+                    with ui.column().classes("gap-0 min-w-0"):
+                        ui.label(item.name).classes("text-sm font-medium truncate")
+                        ui.label(
+                            f"{item.extension} · "
+                            f"{_format_bytes(item.size_bytes)} · "
+                            f"{item.modified_at:%Y-%m-%d %H:%M}"
+                        ).classes("cae-muted text-xs")
+                ui.button(
+                    icon="delete",
+                    on_click=lambda name=item.name: delete_input_from_maintenance(
+                        name
+                    ),
+                ).props("flat dense round color=negative").tooltip(
+                    "입력 파일 삭제"
+                )
+
+    def delete_input_from_maintenance(name: str) -> None:
+        """파일 관리 화면에서 선택한 입력 파일 하나를 삭제하고 목록을 갱신한다."""
+        try:
+            deleted = delete_input_file(config, name)
+        except UIError as error:
+            file_feedback.set_text(f"입력 파일 삭제 실패: {error}")
+            file_feedback.classes(replace="text-sm text-negative")
+            return
+        file_feedback.set_text(f"입력 파일 삭제 완료: {deleted}")
+        file_feedback.classes(replace="text-sm text-positive")
+        overview_content.refresh()
+        maintenance_input_files.refresh()
+
     def execute_cleanup() -> None:
         """직전 미리보기와 후보가 같을 때만 승인된 실제 정리를 실행한다."""
         days = int(cleanup_state["days"] or 30)
@@ -496,7 +543,7 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
             ):
                 section_heading(
                     "ACTIVITY",
-                    "로그와 결과",
+                    "결과 기록",
                     "최근 실행 기록과 결과 파일을 작업공간 기준으로 확인합니다.",
                 )
                 with ui.row().classes("justify-end"):
@@ -512,11 +559,34 @@ def build_dashboard(config: AppConfig, *, ui_module: Any) -> None:
                 "cae-page w-full max-w-7xl mx-auto p-4 md:p-7 gap-5"
             ):
                 section_heading(
-                    "MAINTENANCE",
-                    "작업공간 유지관리",
-                    "정리 미리보기는 파일을 삭제하지 않습니다. 실제 정리는 "
-                    "별도 승인과 후보 재검증을 거칩니다.",
+                    "FILES",
+                    "파일 관리",
+                    "입력 파일을 확인·삭제하고 오래된 임시 파일 정리를 "
+                    "승인할 수 있습니다.",
                 )
+                with ui.card().classes("cae-panel w-full p-5 md:p-7 gap-4"):
+                    with ui.row().classes("items-center justify-between gap-3"):
+                        with ui.row().classes("items-center gap-3"):
+                            ui.icon("folder_open").classes(
+                                "text-primary text-2xl"
+                            )
+                            with ui.column().classes("gap-0"):
+                                ui.label("입력 파일 관리").classes(
+                                    "font-bold text-lg"
+                                )
+                                ui.label(
+                                    "채팅 첨부에 사용할 원본 파일을 확인하고 "
+                                    "필요 없는 파일을 삭제합니다."
+                                ).classes("cae-muted text-sm")
+                        ui.button(
+                            "새로고침",
+                            icon="refresh",
+                            on_click=maintenance_input_files.refresh,
+                        ).props("outline rounded no-caps")
+                    file_feedback = ui.label(
+                        "삭제한 입력 파일은 감사 로그에 기록됩니다."
+                    ).classes("cae-muted text-sm")
+                    maintenance_input_files()
                 with ui.card().classes(
                     "cae-panel cae-danger w-full p-5 md:p-7 gap-4"
                 ):
