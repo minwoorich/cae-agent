@@ -9,7 +9,9 @@ from cae_agent.agent.chat import (
     MessageDetail,
     MessageDetailKind,
     MessageRole,
+    load_chat_session,
     mock_response_chunks,
+    save_chat_session,
 )
 
 
@@ -103,3 +105,52 @@ def test_mock_response_is_explicitly_non_executing() -> None:
     assert "model.step" in response
     assert "Codex나 Ansys 명령을 실행하지 않았습니다" in response
     assert len(chunks) > 1
+
+
+def test_chat_session_round_trip_preserves_messages(tmp_path) -> None:
+    """저장된 대화는 UI 재시작 후에도 본문, 첨부, 상세 정보를 복원해야 한다."""
+    session = ChatSession(session_id="chat-1")
+    assistant = session.submit(
+        "모델 단순화 계획을 세워줘",
+        attachments=("model.step",),
+    )
+    session.append_stream(assistant.message_id, "단순화 계획입니다.")
+    session.complete(
+        assistant.message_id,
+        details=(
+            MessageDetail(
+                kind=MessageDetailKind.LOG,
+                title="Codex 연결 정보",
+                content="thread: local",
+            ),
+        ),
+    )
+
+    path = tmp_path / "session.json"
+    save_chat_session(path, session)
+
+    restored = load_chat_session(path)
+
+    assert restored.session_id == "chat-1"
+    assert restored.status is ChatStatus.IDLE
+    assert restored.active_assistant_id is None
+    assert restored.messages[0].content == "모델 단순화 계획을 세워줘"
+    assert restored.messages[0].attachments == ("model.step",)
+    assert restored.messages[1].content == "단순화 계획입니다."
+    assert restored.messages[1].details[0].title == "Codex 연결 정보"
+
+
+def test_chat_session_reload_resets_incomplete_turn(tmp_path) -> None:
+    """재시작 후 끊긴 Codex 턴은 이어 붙이지 않고 대화 기록만 안전하게 남긴다."""
+    session = ChatSession(session_id="chat-2")
+    assistant = session.submit("해석 준비해줘")
+    session.append_stream(assistant.message_id, "준비 중입니다.")
+
+    path = tmp_path / "session.json"
+    save_chat_session(path, session)
+
+    restored = load_chat_session(path)
+
+    assert restored.status is ChatStatus.IDLE
+    assert restored.active_assistant_id is None
+    assert restored.messages[-1].content == "준비 중입니다."

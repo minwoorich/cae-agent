@@ -11,8 +11,8 @@ from typing import Any, Callable
 from cae_agent.agent.attachments import classify_attachment
 from cae_agent.security.approval import ApprovalRequest, ApprovalRisk
 from cae_agent.agent.chat import (
-    ChatError, ChatMessage, ChatSession, ChatStatus,
-    MessageDetail, MessageDetailKind, MessageRole,
+    ChatError, ChatMessage, ChatSession, ChatStatus, MessageDetail,
+    MessageDetailKind, MessageRole, load_chat_session_or_new, save_chat_session,
 )
 from cae_agent.agent.codex_app_server import CodexAppServerClient, CodexAppServerError
 from cae_agent.core.config import AppConfig
@@ -20,9 +20,9 @@ from cae_agent.ui.files import (
     MAX_UPLOAD_SIZE_BYTES, PendingUploadReplacement, UIError, UploadConflict,
     format_bytes as _format_bytes, replace_input_upload, store_input_upload,
 )
+from cae_agent.ui.input_library import build_input_file_library
 from cae_agent.ui.session_menu import build_session_menu
 from cae_agent.security.write_policy import ApprovalDecision, approval_decision
-
 
 CHAT_SUBMIT_KEYDOWN_JS = """
 (event) => {
@@ -32,7 +32,6 @@ CHAT_SUBMIT_KEYDOWN_JS = """
     if (isPlainEnter) { event.preventDefault(); emit(); }
 }
 """
-
 
 @dataclass(slots=True)
 class ChatProgressStep:
@@ -44,7 +43,6 @@ class ChatProgressStep:
     detail: str = ""
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
-
 
 def build_chat_panel(
     ui: Any,
@@ -58,25 +56,22 @@ def build_chat_panel(
         "pending": None
     }
     selected_inputs: set[str] = set()
-    chat_session = ChatSession()
-    # 브라우저 세션마다 대화 문맥과 App Server 프로세스를 분리한다.
+    chat_session_file = config.workspace.root / ".runtime" / "chat" / "session.json"
+    chat_session = load_chat_session_or_new(chat_session_file)
+
+    def persist_chat_session() -> None:
+        save_chat_session(chat_session_file, chat_session)
+
     codex_client = CodexAppServerClient(
         config.workspace.root,
         audit_path=config.workspace.logs_dir / "codex-approvals.jsonl",
     )
     pending_approvals: dict[int, ApprovalRequest] = {}
-    # YOLO 선택은 설정 파일에 저장하지 않고 현재 브라우저 세션 메모리에만 둔다.
-    # 새로고침이나 재접속 시 확인 모드로 복귀해 사용자가 다시 명시적으로 켜야 한다.
     yolo_mode_state = {"enabled": False}
-    # 진행 단계는 assistant 메시지 ID별로 보관한다. 메뉴 탭은 같은 페이지의
-    # 렌더링만 전환하므로 사용자가 다른 메뉴를 보는 동안에도 이 상태와 Codex
-    # 스트림은 유지된다. 브라우저 연결 자체가 끊기면 아래 on_disconnect에서
-    # App Server를 종료하므로 새로고침 후까지 영속화하는 용도는 아니다.
     progress_steps: dict[str, dict[str, ChatProgressStep]] = {}
-    # 사용자가 탭을 닫으면 해당 브라우저 세션의 자식 프로세스도 종료한다.
-    # 테스트용 UI 대역에는 context가 없을 수 있으므로 실제 NiceGUI에서만 등록한다.
     if hasattr(ui, "context") and hasattr(ui.context, "client"):
         ui.context.client.on_disconnect(codex_client.close)
+
     async def change_approval_mode(event: Any) -> None:
         """스위치 상태를 반영하고 YOLO 전환 시 대기 중 요청도 즉시 승인한다."""
         enabled = bool(event.value)
@@ -252,12 +247,15 @@ def build_chat_panel(
                 ).props("outline color=primary")
 
     def set_input_attachment(name: str, selected: bool) -> None:
-        """입력 파일 하나를 향후 Codex 채팅 첨부 목록에 추가하거나 제거한다."""
         if selected:
             selected_inputs.add(name)
         else:
             selected_inputs.discard(name)
         refresh_attachment_selection()
+
+    def set_upload_feedback(message: str, tone: str) -> None:
+        upload_feedback.set_text(message)
+        upload_feedback.classes(replace=f"text-sm {tone}")
 
     def update_chat_controls() -> None:
         """현재 응답 상태에 맞춰 전송·중지·재시도 버튼을 활성화한다."""
@@ -568,6 +566,7 @@ def build_chat_panel(
                         assistant.message_id,
                         event.text,
                     )
+                    persist_chat_session()
                     chat_messages.refresh()
                     await scroll_chat_to_latest()
                 elif event.kind == "progress":
@@ -682,6 +681,7 @@ def build_chat_panel(
                 assistant.message_id,
                 final_status="completed",
             )
+            persist_chat_session()
         except (ChatError, CodexAppServerError) as error:
             refresh_codex_connection_badge(error=str(error))
             finalize_progress_steps(
@@ -690,6 +690,7 @@ def build_chat_panel(
             )
             if chat_session.status is ChatStatus.STREAMING:
                 chat_session.fail(assistant.message_id, str(error))
+                persist_chat_session()
         finally:
             chat_messages.refresh()
             update_chat_controls()
@@ -709,6 +710,7 @@ def build_chat_panel(
             chat_status.classes(replace="text-sm text-negative")
             return
 
+        persist_chat_session()
         chat_input.value = ""
         progress_steps[assistant.message_id] = {
             "turn": ChatProgressStep(
@@ -738,6 +740,7 @@ def build_chat_panel(
                 assistant_id=chat_session.messages[-1].message_id,
                 final_status="stopped",
             )
+            persist_chat_session()
         except (ChatError, CodexAppServerError) as error:
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
@@ -752,6 +755,7 @@ def build_chat_panel(
             chat_status.set_text(str(error))
             chat_status.classes(replace="text-sm text-negative")
             return
+        persist_chat_session()
         progress_steps[assistant.message_id] = {
             "turn": ChatProgressStep(
                 step_id="turn",
@@ -813,6 +817,7 @@ def build_chat_panel(
             upload_feedback.classes(replace="text-sm text-positive")
             overview_refresh()
         refresh_attachment_selection()
+        input_file_library.refresh()
 
     def cancel_upload_replacement() -> None:
         """중복 업로드 내용을 버리고 기존 입력 파일을 그대로 유지한다."""
@@ -846,12 +851,7 @@ def build_chat_panel(
             replacement_dialog.close()
             overview_refresh()
             refresh_attachment_selection()
-
-    feedback: Any
-    retention: Any
-    candidate_box: Any
-    approval_summary: Any
-
+            input_file_library.refresh()
 
     with ui.dialog() as replacement_dialog, ui.card().classes(
         "cae-dialog-card cae-danger min-w-96 max-w-xl p-6 gap-4"
@@ -926,6 +926,12 @@ def build_chat_panel(
                     ):
                         chat_attachment_chips = ui.row().classes(
                             "w-full gap-1 flex-wrap px-1"
+                        )
+                        input_file_library = build_input_file_library(
+                            ui, config, selected_inputs=selected_inputs,
+                            refresh_attachment_selection=refresh_attachment_selection,
+                            overview_refresh=overview_refresh,
+                            set_feedback=set_upload_feedback,
                         )
                         chat_input = ui.textarea(
                             placeholder="CAE 작업을 자연어로 입력하세요",
