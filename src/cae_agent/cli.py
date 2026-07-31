@@ -30,6 +30,12 @@ from cae_agent.ansys.mechanical import (
     run_mechanical_script,
     start_mechanical_session,
 )
+from cae_agent.ansys.icepak import (
+    IcepakError,
+    connect_icepak,
+    icepak_status,
+    run_icepak_script,
+)
 from cae_agent.ansys.project import ProjectError, create_project
 from cae_agent.agent.repair import RepairError, run_repair_loop
 from cae_agent.ansys.spaceclaim import SpaceClaimError, run_spaceclaim_script
@@ -321,6 +327,52 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mechanical_run_parser.add_argument("script_file", type=Path)
 
+    icepak_parser = subparsers.add_parser(
+        "icepak",
+        help="PyAEDT를 통해 Ansys Icepak 프로젝트와 스크립트를 제어합니다.",
+    )
+    icepak_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    icepak_parser.add_argument(
+        "--project",
+        type=Path,
+        required=True,
+        dest="project_file",
+        help="연결할 기존 .aedt 또는 .aedtz 프로젝트입니다.",
+    )
+    icepak_parser.add_argument(
+        "--design",
+        dest="design_name",
+        help="선택할 Icepak 설계 이름입니다.",
+    )
+    icepak_parser.add_argument(
+        "--new-desktop",
+        action="store_true",
+        help="기존 AEDT 세션 대신 새 Electronics Desktop 세션을 시작합니다.",
+    )
+    icepak_parser.add_argument(
+        "--student-version",
+        action="store_true",
+        help="AEDT Student 버전으로 연결합니다.",
+    )
+    icepak_subparsers = icepak_parser.add_subparsers(
+        dest="icepak_command",
+        required=True,
+    )
+    icepak_subparsers.add_parser(
+        "status",
+        help="프로젝트와 활성 Icepak 설계의 연결 상태를 확인합니다.",
+    )
+    icepak_run_parser = icepak_subparsers.add_parser(
+        "run-script",
+        help="PyAEDT Icepak 객체가 주입된 환경에서 Python 스크립트를 실행합니다.",
+    )
+    icepak_run_parser.add_argument("script_file", type=Path)
+
     generate_parser = subparsers.add_parser(
         "generate",
         help="AI 제공자로 SpaceClaim 또는 Mechanical 스크립트를 생성합니다.",
@@ -334,7 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument(
         "--target",
         required=True,
-        choices=("spaceclaim", "mechanical"),
+        choices=("spaceclaim", "mechanical", "icepak"),
         help="생성할 스크립트의 CAE 실행 환경입니다.",
     )
     prompt_group = generate_parser.add_mutually_exclusive_group(required=True)
@@ -566,6 +618,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(result.to_json())
                 return 0
         except (ConfigError, MechanicalError, WorkbenchError, OSError) as error:
+            parser.error(str(error))
+
+    if args.command == "icepak":
+        try:
+            config = load_config(args.config_file)
+            app = connect_icepak(
+                config,
+                project_file=args.project_file,
+                design_name=args.design_name,
+                new_desktop=args.new_desktop,
+                student_version=args.student_version,
+            )
+            if args.icepak_command == "status":
+                print(icepak_status(app))
+                return 0
+            if args.icepak_command == "run-script":
+                result = run_icepak_script(
+                    config,
+                    args.script_file,
+                    project_file=args.project_file,
+                    design_name=args.design_name,
+                    new_desktop=args.new_desktop,
+                    student_version=args.student_version,
+                    app=app,
+                )
+                print(result.to_json())
+                return 0
+        except (ConfigError, IcepakError, OSError) as error:
             parser.error(str(error))
 
     if args.command == "generate":

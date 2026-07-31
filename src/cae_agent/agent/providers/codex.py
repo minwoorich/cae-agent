@@ -18,7 +18,7 @@ from cae_agent.agent.providers.base import AgentError, GeneratedScript
 from cae_agent.core.config import AppConfig, prepare_workspace
 
 
-TARGETS = {"spaceclaim", "mechanical"}
+TARGETS = {"spaceclaim", "mechanical", "icepak"}
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -46,6 +46,8 @@ def build_prompt(*, target: str, request: str, ansys_version: str) -> str:
         if target == "spaceclaim"
         else "Ansys Mechanical 내부 Python API"
     )
+    if target == "icepak":
+        environment = "PyAEDT Ansys Icepak Python API"
     compatibility = ""
     if target == "spaceclaim":
         compatibility = """
@@ -55,6 +57,14 @@ V261에서 실제 검증한 SpaceClaim API 규칙:
   ExtrudeType.ForceAdd) 패턴으로 만들고 body = result.CreatedBodies[0]으로
   생성 바디를 가져오세요.
 - DesignBody 이름은 SetName()이 아니라 body.Name = "이름"으로 지정하세요.
+"""
+    if target == "icepak":
+        compatibility = """
+Icepak 스크립트 규칙:
+- PyAEDT Icepak 객체는 icepak과 app 변수로 이미 제공됩니다.
+- 새 Desktop 세션을 직접 시작하거나 release_desktop을 호출하지 마세요.
+- 프로젝트 저장과 해석 실행은 사용자 요구에 명시된 경우에만 수행하세요.
+- 실행 결과 요약은 result 변수에 JSON 직렬화 가능한 값으로 대입하세요.
 """
     return f"""다음 요구사항을 만족하는 CAE Python 스크립트를 작성하세요.
 
@@ -139,7 +149,7 @@ class CodexProvider:
         normalized_target = target.strip().lower()
         if normalized_target not in TARGETS:
             raise AgentError(
-                "생성 대상은 spaceclaim 또는 mechanical이어야 합니다."
+                "생성 대상은 spaceclaim, mechanical 또는 icepak이어야 합니다."
             )
         if not request.strip():
             raise AgentError("스크립트 생성 요구사항은 비어 있을 수 없습니다.")

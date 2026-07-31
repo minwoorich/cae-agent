@@ -230,3 +230,6 @@ _ProjectScratch/
 .mechanical_session*.json
 *.wbpj
 *_files/
+cae-agent.toml
+cleanup-fluent-*.bat
+fluent-*.trn

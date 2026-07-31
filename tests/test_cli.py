@@ -29,6 +29,18 @@ def test_cli_displays_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Ansys SpaceClaim and Mechanical" in capsys.readouterr().out
 
 
+def test_cli_exposes_icepak_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["icepak", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--project" in output
+    assert "run-script" in output
+
+
 def test_doctor_command_returns_failure_for_failed_check(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
