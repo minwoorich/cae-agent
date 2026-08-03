@@ -9,10 +9,12 @@ from cae_agent.ansys.icepak import IcepakError
 from cae_agent.ansys.icepak_native import (
     NativeIcepakRuntime,
     native_installed_aedt_versions,
+    native_box_attributes,
     resolve_native_runtime,
     run_native_icepak_script,
     validate_native_hostname,
 )
+from cae_agent.ansys import icepak_native
 from cae_agent.core.config import load_config
 
 
@@ -49,9 +51,38 @@ def test_native_installation_discovery_does_not_require_pyaedt(tmp_path: Path) -
     ) == {"2025.2SV": str(runtime.root.resolve())}
 
 
+def test_native_box_attributes_exclude_incompatible_recorded_properties() -> None:
+    attributes = native_box_attributes("HeatBlock", "copper")
+
+    assert attributes == [
+        "NAME:Attributes",
+        "Name:=",
+        "HeatBlock",
+        "MaterialValue:=",
+        '"copper"',
+        "SolveInside:=",
+        True,
+    ]
+    assert "IsMaterialEditable:=" not in attributes
+    assert "IsLightweight:=" not in attributes
+
+
+def test_native_box_attributes_require_name_and_material() -> None:
+    with pytest.raises(IcepakError, match="이름과 재료"):
+        native_box_attributes("", "copper")
+
+
 def test_non_ascii_hostname_is_rejected_before_aedt_launch() -> None:
     with pytest.raises(IcepakError, match="ASCII"):
         validate_native_hostname("민우-PC")
+
+
+def test_wrapper_preserves_aedt_messages_when_payload_fails() -> None:
+    source = icepak_native._wrapper_source()
+
+    assert "CAE_NATIVE_AEDT_MESSAGES=" in source
+    assert 'oDesktop.GetMessages("", "", 0)' in source
+    assert "traceback.print_exc" in source
 
 
 class FakeProcess:
@@ -124,3 +155,28 @@ def test_native_run_rejects_missing_success_marker_and_stops_aedt(tmp_path: Path
             runner=lambda *_args, **_kwargs: CompletedProcess([], 0, "done", ""),
         )
     assert process.terminated is True
+
+
+def test_native_failure_prioritizes_aedt_message_marker(tmp_path: Path) -> None:
+    config = load_config(current_directory=tmp_path)
+    script = tmp_path / "probe.py"
+    script.write_text("raise RuntimeError('bad model')\n", encoding="utf-8")
+    process = FakeProcess()
+
+    with pytest.raises(IcepakError, match="CreateBox parameter is invalid"):
+        run_native_icepak_script(
+            config,
+            script,
+            runtime=_runtime(tmp_path),
+            hostname="MINWOO",
+            run_id_factory=lambda: "aedt-message",
+            popen_factory=lambda *_args, **_kwargs: process,
+            waiter=lambda *_args: None,
+            runner=lambda *_args, **_kwargs: CompletedProcess(
+                [],
+                1,
+                "",
+                'CAE_NATIVE_AEDT_MESSAGES=["CreateBox parameter is invalid"]\n'
+                + "traceback\n" * 500,
+            ),
+        )

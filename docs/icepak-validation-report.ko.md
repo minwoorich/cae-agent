@@ -13,6 +13,23 @@
 DesktopPlugin을 사용했다. 실행 사본과 AEDT 프로젝트는 로컬
 `workspace/generated`에만 보존하며 Git에는 포함하지 않는다.
 
+### 신규 모델 생성 호환성 재검증 (#94)
+
+- 원인: GUI 녹화형 `CreateBox` 확장 Attributes가 Native gRPC에서
+  `0x80020009`를 반환함
+- 수정: `Name`, `MaterialValue`, `SolveInside`만 전달하는 최소 속성 사용
+- 형상 검증: 자동 Region 포함 객체 수 1개에서 구리 블록 추가 후 2개 확인
+- 해석 전처리: 자동 Region 제거, 10 W total power, 외부 HTC 10 W/m²K,
+  TemperatureOnly `Setup1`
+- 메시: 7,488 nodes, 1,722 faces, 4,410 cells
+- 솔버 상태: `Normal Completion`
+- NativeHeatBlock 온도: 최소 599.102 °C, 최대 599.272 °C,
+  평균 599.211 °C
+
+첫 실행에서 자동 Region을 남겼을 때는 외부 HTC가 블록 노출면에 직접 적용되지
+않아 5,000 K 제한에 도달했다. 이를 정상 완료만 보고 성공으로 채택하지 않고,
+Region 제거 후 온도 제한 메시지가 사라진 해를 최종 회귀 결과로 사용했다.
+
 검증일: 2026-08-03
 
 ## 결론

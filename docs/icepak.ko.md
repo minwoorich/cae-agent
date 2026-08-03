@@ -88,6 +88,14 @@ Native 스크립트에는 AEDT가 제공하는 `oDesktop`이 주입된다. 새 �
 프로세스만 종료한다. `ANSYSEM_ROOT###` 설치 환경 변수를 우선 사용하므로 Native
 실행 자체에는 PyAEDT 패키지가 필요하지 않다.
 
+AEDT 2025 R2에서 `CreateBox`를 사용할 때는 GUI 녹화 결과의 모든 속성을 그대로
+전달하지 않는다. `UDMId`, `IsMaterialEditable`, `UseMaterialAppearance`,
+`IsLightweight`가 포함된 확장 속성 묶음은 Native gRPC에서 `0x80020009`를
+발생시킬 수 있다. `native_box_attributes(name, material)`이 반환하는 `Name`,
+`MaterialValue`, `SolveInside` 최소 묶음으로 형상을 생성하고 색상·투명도는 생성
+후 별도 속성 변경으로 적용한다. 또한 빈 신규 프로젝트에는 존재하지 않는
+`Setup1`을 무조건 삭제하지 말고, 설정 목록을 확인한 뒤에만 삭제한다.
+
 ## AI 스크립트 생성
 
 ```powershell

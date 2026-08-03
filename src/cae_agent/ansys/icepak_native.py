@@ -22,6 +22,7 @@ from cae_agent.core.config import AppConfig
 
 
 SUCCESS_MARKER = "CAE_NATIVE_RESULT="
+AEDT_MESSAGE_MARKER = "CAE_NATIVE_AEDT_MESSAGES="
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,28 @@ class NativeIcepakResult:
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, indent=2)
+
+
+def native_box_attributes(name: str, material: str) -> list[object]:
+    """AEDT 2025 R2 Native gRPC에서 검증된 최소 CreateBox 속성을 만든다.
+
+    GUI 녹화 매크로의 ``UDMId``, ``IsMaterialEditable``과 ``IsLightweight`` 같은
+    확장 속성은 DesktopPlugin 경로에서 ``0x80020009``를 유발할 수 있다. 색상과
+    투명도는 형상 생성 후 별도 속성 변경으로 적용하고 생성 호출은 최소화한다.
+    """
+    clean_name = name.strip()
+    clean_material = material.strip()
+    if not clean_name or not clean_material:
+        raise IcepakError("Native CreateBox에는 이름과 재료가 모두 필요합니다.")
+    return [
+        "NAME:Attributes",
+        "Name:=",
+        clean_name,
+        "MaterialValue:=",
+        f'"{clean_material}"',
+        "SolveInside:=",
+        True,
+    ]
 
 
 def native_installed_aedt_versions(
@@ -136,7 +159,18 @@ def _wait_for_port(port: int, process: subprocess.Popen[str], timeout: float) ->
 
 def _wrapper_source() -> str:
     """ScriptEnv가 주입한 oDesktop을 사용자 스크립트에 전달하는 고정 래퍼다."""
-    return '''import json\nimport sys\nplugin, port, payload = sys.argv[1], int(sys.argv[2]), sys.argv[3]\nsys.path.insert(0, plugin)\nimport ScriptEnv\nScriptEnv.Initialize("", False, "", port)\nnamespace = {"__name__": "__cae_agent_icepak_native__", "oDesktop": oDesktop}\ntry:\n    with open(payload, "r", encoding="utf-8-sig") as stream:\n        source = stream.read()\n    exec(compile(source, payload, "exec"), namespace, namespace)\n    print("CAE_NATIVE_RESULT=" + json.dumps(str(namespace.get("result", "")), ensure_ascii=False), flush=True)\nfinally:\n    ScriptEnv.Shutdown()\n'''
+    return '''import json\nimport sys\nimport traceback\nplugin, port, payload = sys.argv[1], int(sys.argv[2]), sys.argv[3]\nsys.path.insert(0, plugin)\nimport ScriptEnv\nScriptEnv.Initialize("", False, "", port)\nnamespace = {"__name__": "__cae_agent_icepak_native__", "oDesktop": oDesktop}\ntry:\n    with open(payload, "r", encoding="utf-8-sig") as stream:\n        source = stream.read()\n    exec(compile(source, payload, "exec"), namespace, namespace)\n    print("CAE_NATIVE_RESULT=" + json.dumps(str(namespace.get("result", "")), ensure_ascii=False), flush=True)\nexcept Exception:\n    try:\n        messages = list(oDesktop.GetMessages("", "", 0))\n    except Exception as message_error:\n        messages = ["AEDT 메시지 조회 실패: " + str(message_error)]\n    print("CAE_NATIVE_AEDT_MESSAGES=" + json.dumps(messages, ensure_ascii=False), file=sys.stderr, flush=True)\n    traceback.print_exc(file=sys.stderr)\n    raise\nfinally:\n    ScriptEnv.Shutdown()\n'''
+
+
+def _native_failure_detail(stdout: str, stderr: str) -> str:
+    """긴 traceback에 앞선 AEDT 메시지 마커를 잃지 않도록 오류를 요약한다."""
+    raw_detail = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    message_line = next(
+        (line for line in raw_detail.splitlines() if line.startswith(AEDT_MESSAGE_MARKER)),
+        "",
+    )
+    tail = raw_detail[-2000:]
+    return "\n".join(part for part in (message_line, tail) if part)
 
 
 def run_native_icepak_script(
@@ -191,16 +225,14 @@ def run_native_icepak_script(
             timeout=timeout,
         )
         if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
+            detail = _native_failure_detail(completed.stdout, completed.stderr)
             raise IcepakError(f"Native ScriptEnv 실행 실패(코드 {completed.returncode}): {detail}")
         marker_line = next(
             (line for line in completed.stdout.splitlines() if line.startswith(SUCCESS_MARKER)),
             None,
         )
         if marker_line is None:
-            detail = (completed.stderr or completed.stdout).strip()
-            if len(detail) > 1000:
-                detail = detail[-1000:]
+            detail = _native_failure_detail(completed.stdout, completed.stderr)
             raise IcepakError(
                 "Native ScriptEnv가 성공 결과 마커를 반환하지 않았습니다. "
                 f"출력: {detail or '(없음)'}"
