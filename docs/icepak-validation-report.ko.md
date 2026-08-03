@@ -4,11 +4,10 @@
 
 ## 결론
 
-CAE Agent의 Icepak 설치 감지, 버전 선택, 프로젝트 생성 경로 보호, 스크립트 실행
-준비와 AEDT 세션 종료 처리는 단위·회귀 테스트를 통과했다. 그러나 이 PC의 실제
-AEDT Student 2025 R2 연결은 Windows Application Control 정책이 AEDT 자동화 DLL을
-차단하여 완료되지 않았다. 이 차단은 Icepak 모델이나 해석 조건을 만들기 전에
-발생하므로 형상 또는 메시 문제와는 무관하다.
+CAE Agent의 Icepak 설치 감지, 버전 선택, 프로젝트 생성 경로 보호와 세션 종료
+처리는 단위·회귀 테스트를 통과했다. Windows Smart App Control 해제와 ASCII
+컴퓨터명 적용 후 AEDT Student 2025 R2의 실제 프로젝트 생성, 메시와 정상상태
+TemperatureOnly 해석 및 온도 결과 추출까지 완료했다.
 
 ## 검증 환경
 
@@ -25,6 +24,9 @@ AEDT Student 2025 R2 연결은 Windows Application Control 정책이 AEDT 자동
 - 기존 `.aedt` 파일 덮어쓰기 차단
 - Icepak 상태·스크립트 실행 인자와 결과 직렬화
 - CAE Agent가 시작한 새 AEDT 세션의 정상 종료 요청
+- Native ScriptEnv를 사용한 실제 Icepak 프로젝트 생성
+- 10 W 구리 블록의 정상상태 TemperatureOnly 해석
+- 메시와 온도 필드 요약 추출
 - 전체 테스트: 159 passed, 2 skipped
 
 스킵 2건은 현재 Windows 계정의 심볼릭 링크 생성 권한에 관한 테스트이며 Icepak과
@@ -32,29 +34,35 @@ AEDT Student 2025 R2 연결은 Windows Application Control 정책이 AEDT 자동
 
 ## 실제 실행 결과
 
-Python 3.13과 3.14에서 각각 새 Icepak 프로젝트 생성을 시도했다. AEDT 실행 파일은
-시작되었지만 gRPC 세션이 준비되지 않아 연결이 타임아웃되었다. Windows Code
-Integrity 이벤트 3033/3077은 AEDT의 `Ansys.Ansoft.CoreCOMScripting.dll`이 기업
-서명 수준을 충족하지 못해 차단되었다고 기록했다. Python 3.13 환경의 콘솔 실행
-파일도 같은 정책에 의해 차단되어 `python -m cae_agent` 방식으로 재검증했지만 AEDT
-자동화 DLL 차단은 동일했다. 테스트가 만든 잔류 AEDT/Python 프로세스는 종료했다.
+초기에는 Smart App Control이 서명되지 않은 AEDT 자동화 DLL을 차단했다. 기능을
+해제한 뒤 Native `ScriptEnv.Initialize` 연결과 프로젝트 저장이 성공했다. 이후
+Icepak Mesher는 한글 Windows 컴퓨터명을 HPC 머신 이름으로 전달할 때 시작되지
+않았다. 컴퓨터명을 `MINWOO`로 변경하고 재부팅한 뒤 동일 해석이 정상 완료됐다.
 
-## 실제 최소 열해석을 완료하기 위한 외부 조치
+최종 검증 모델과 결과는 다음과 같다.
 
-조직의 Windows 보안 관리자 또는 IT 담당자가 설치된 Ansys 배포본과 해당 자동화
-DLL을 신뢰하도록 Application Control 정책을 수정하거나, 허용된 Ansys 설치본을
-제공해야 한다. 정책을 임의로 비활성화하거나 우회해서는 안 된다. 정책 반영 후에는
-다음 순서로 다시 검증한다.
+- 프로젝트: `workspace/generated/icepak_minimal_20260803.aedt`
+- 형상: 20 × 20 × 10 mm 구리 블록
+- 발열: 총 10 W
+- 외부 열전달계수: 10 W/m²·K, 기준온도 `AmbientTemp`
+- 메시: 노드 7,488, 면 1,722, 셀 4,410
+- 솔버 상태: `Normal Completion`
+- 블록 온도: 최저 599.102 °C, 최고 599.272 °C, 평균 599.211 °C
 
-1. 빈 Icepak 프로젝트 생성 및 저장
-2. 단순 블록과 공기 영역 생성
-3. 고체 발열과 외기 경계조건 지정
-4. 정상상태 해석 실행
-5. 최고 온도, 수렴 상태와 프로젝트 저장 여부 확인
+온도가 높은 것은 작은 블록에 10 W를 가하고 낮은 자연대류 수준의 열전달계수만
+사용한 의도적인 스모크 조건 때문이다. 실제 제품 설계의 허용 온도를 뜻하지 않는다.
+
+## 주의 사항
+
+PyAEDT 1.3의 새 세션 시작은 이 Student 빌드에서 WNUA 및 insecure 모드 모두
+타임아웃됐다. 실제 검증은 Ansys 설치본의 CPython과 Native ScriptEnv를 사용했다.
+향후 CAE Agent에는 Student 2025 R2용 Native 백엔드를 정식 실행 경로로 통합해야
+한다.
 
 ## 판정
 
 - CAE Agent 코드 및 모의 통합 검증: 통과
 - 실제 AEDT 프로세스 시작: 통과
-- 실제 PyAEDT 세션 연결: 외부 보안 정책으로 차단
-- 실제 Icepak 최소 열해석: 세션 연결 차단으로 미실행
+- 실제 Native AEDT 세션 연결: 통과
+- 실제 Icepak 최소 열해석: 통과
+- 실제 PyAEDT 1.3 세션 연결: 호환성 문제로 실패, Native 경로로 대체
