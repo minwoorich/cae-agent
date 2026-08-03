@@ -16,6 +16,26 @@ Workbench gRPC와 PyAEDT의 의존성 충돌을 피하기 위해 Icepak은 전�
 
 ## 상태 확인
 
+먼저 로컬에 설치된 AEDT 버전을 확인할 수 있다. 별도 버전을 지정하지 않으면
+CAE Agent가 일반 버전을 우선하고, 없으면 Student 버전 중 가장 최신 설치를 선택한다.
+
+```powershell
+.\.venv-icepak\Scripts\cae-agent.exe icepak installations
+```
+
+## 새 프로젝트 생성
+
+새 프로젝트는 원본 입력과 섞이지 않도록 `workspace/generated` 아래에만 만든다.
+확장자는 `.aedt`여야 하며 같은 파일이 이미 있으면 덮어쓰지 않고 중단한다.
+
+```powershell
+.\.venv-icepak\Scripts\cae-agent.exe icepak `
+  --student-version `
+  create-project --output workspace/generated/icepak_minimal.aedt
+```
+
+프로젝트가 이미 있으면 다음 명령으로 연결 상태를 확인한다.
+
 ```powershell
 cae-agent icepak --project workspace/input/thermal.aedt status
 ```
@@ -57,6 +77,8 @@ AI 생성은 코드를 작성하고 검증된 사본으로 저장하는 단계�
 ## 안전 경계
 
 - 프로젝트 경로는 기존 `.aedt` 또는 `.aedtz` 파일이어야 한다.
+- 새 프로젝트 생성 위치는 `workspace/generated` 내부로 제한되며 기존 파일을 덮어쓰지 않는다.
+- 자동 감지가 맞지 않는 경우에만 `--aedt-version`과 `--student-version`을 명시한다.
 - PyAEDT와 AEDT는 실제 연결 시점에만 필요하다.
 - AI 프롬프트는 Desktop 직접 종료와 `release_desktop` 호출을 금지한다.
 - 새 AEDT 프로세스가 필요할 때만 `--new-desktop`을 사용한다.

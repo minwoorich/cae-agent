@@ -8,9 +8,11 @@ import pytest
 from cae_agent.ansys.icepak import (
     IcepakError,
     connect_icepak,
+    create_icepak_project,
     icepak_status,
     pyaedt_version,
     run_icepak_script,
+    select_aedt_version,
 )
 from cae_agent.core.config import load_config
 
@@ -18,6 +20,14 @@ from cae_agent.core.config import load_config
 def test_pyaedt_version_conversion() -> None:
     assert pyaedt_version("261") == "2026.1"
     assert pyaedt_version("2025.2") == "2025.2"
+
+
+def test_installed_student_version_is_selected_as_fallback() -> None:
+    assert select_aedt_version(
+        "261",
+        student_version=True,
+        installed={"2025.2SV": r"C:\AnsysEM"},
+    ) == "2025.2"
 
 
 def test_connect_passes_verified_project_and_options(tmp_path: Path) -> None:
@@ -60,6 +70,42 @@ def test_invalid_project_extension_is_rejected(tmp_path: Path) -> None:
             load_config(current_directory=tmp_path),
             project_file=project,
             factory=lambda **_kwargs: object(),
+        )
+
+
+def test_create_project_is_limited_to_generated_and_preserves_existing(
+    tmp_path: Path,
+) -> None:
+    config = load_config(current_directory=tmp_path)
+    output = config.workspace.generated_dir / "icepak" / "smoke.aedt"
+
+    class FakeIcepak:
+        design_name = "Smoke"
+
+        def save_project(self, path: str) -> None:
+            Path(path).write_text("project", encoding="utf-8")
+
+    result = create_icepak_project(
+        config,
+        output=output,
+        design_name="Smoke",
+        student_version=True,
+        factory=lambda **_kwargs: FakeIcepak(),
+    )
+
+    assert result.status == "created"
+    assert output.read_text(encoding="utf-8") == "project"
+    with pytest.raises(IcepakError, match="덮어쓸"):
+        create_icepak_project(
+            config,
+            output=output,
+            factory=lambda **_kwargs: FakeIcepak(),
+        )
+    with pytest.raises(IcepakError, match="generated"):
+        create_icepak_project(
+            config,
+            output=tmp_path / "outside.aedt",
+            factory=lambda **_kwargs: FakeIcepak(),
         )
 
 

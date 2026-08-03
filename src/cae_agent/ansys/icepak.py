@@ -1,7 +1,7 @@
 """PyAEDT를 통해 Ansys Icepak 프로젝트와 AI 생성 스크립트를 제어한다.
 
-PyAEDT는 선택 의존성이다. 모듈 import만으로 AEDT를 요구하지 않고 실제 연결
-시점에만 지연 import하여, Ansys가 없는 환경에서도 기본 테스트가 동작하게 한다.
+PyAEDT는 선택 의존성이다. 실제 연결 시점에만 지연 import하여 Ansys가 없는
+환경에서도 기본 import, 진단과 단위 테스트가 동작하도록 한다.
 """
 
 from __future__ import annotations
@@ -32,7 +32,19 @@ class IcepakResult:
     return_value: str
 
     def to_json(self) -> str:
-        """자동화 도구가 소비할 수 있는 JSON 문자열을 반환한다."""
+        return json.dumps(asdict(self), ensure_ascii=False, indent=2)
+
+
+@dataclass(frozen=True, slots=True)
+class IcepakProjectResult:
+    """새 Icepak 프로젝트 생성과 저장 결과를 기록한다."""
+
+    status: str
+    project: str
+    design: str
+    version: str
+
+    def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, indent=2)
 
 
@@ -50,20 +62,71 @@ def _import_icepak_factory() -> Callable[..., Any]:
         from ansys.aedt.core import Icepak
     except ImportError as error:
         raise IcepakError(
-            "PyAEDT가 설치되지 않았습니다. "
+            "PyAEDT가 설치되지 않았습니다. Icepak 전용 환경에 "
             '`python -m pip install -e ".[icepak]"`을 실행하세요.'
         ) from error
     return Icepak
 
 
+def installed_aedt_versions() -> dict[str, str]:
+    """현재 PC에 등록된 AEDT 버전과 설치 경로를 반환한다."""
+    try:
+        from ansys.aedt.core.internal.aedt_versions import aedt_versions
+    except ImportError as error:
+        raise IcepakError("AEDT 버전 탐색에는 PyAEDT가 필요합니다.") from error
+    return dict(aedt_versions.installed_versions)
+
+
+def select_aedt_version(
+    config_version: str,
+    *,
+    student_version: bool,
+    explicit_version: str | None = None,
+    installed: dict[str, str] | None = None,
+) -> str:
+    """명시 버전을 우선하고 없으면 설치된 최신 일반/Student 버전을 선택한다."""
+    if explicit_version:
+        return explicit_version.strip()
+    requested = pyaedt_version(config_version)
+    if installed is None:
+        return requested
+    requested_key = requested + ("SV" if student_version else "")
+    if requested_key in installed or requested in installed:
+        return requested
+    candidates = [
+        key
+        for key in installed
+        if key.endswith("SV") == student_version and not key.endswith("CL")
+    ]
+    if not candidates:
+        kind = "Student" if student_version else "일반"
+        raise IcepakError(f"설치된 AEDT {kind} 버전을 찾을 수 없습니다.")
+    return sorted(candidates, reverse=True)[0].removesuffix("SV")
+
+
 def _resolve_project(project_file: Path) -> Path:
-    """기존 AEDT 프로젝트만 연결하도록 입력 경로와 확장자를 검증한다."""
+    """기존 AEDT 프로젝트의 존재 여부와 확장자를 검증한다."""
     project = project_file.expanduser().resolve()
     if not project.is_file():
         raise IcepakError(f"Icepak 프로젝트를 찾을 수 없습니다: {project}")
     if project.suffix.lower() not in {".aedt", ".aedtz"}:
         raise IcepakError("Icepak 프로젝트는 .aedt 또는 .aedtz 파일이어야 합니다.")
     return project
+
+
+def _selected_version(
+    config: AppConfig,
+    *,
+    student_version: bool,
+    aedt_version: str | None,
+    inspect_installation: bool,
+) -> str:
+    return select_aedt_version(
+        config.ansys.version,
+        student_version=student_version,
+        explicit_version=aedt_version,
+        installed=(installed_aedt_versions() if inspect_installation else None),
+    )
 
 
 def connect_icepak(
@@ -79,11 +142,17 @@ def connect_icepak(
     """기존 Icepak 프로젝트를 열고 PyAEDT 애플리케이션 객체를 반환한다."""
     project = _resolve_project(project_file)
     active_factory = factory or _import_icepak_factory()
+    version = _selected_version(
+        config,
+        student_version=student_version,
+        aedt_version=aedt_version,
+        inspect_installation=factory is None,
+    )
     try:
         return active_factory(
             project=str(project),
             design=design_name,
-            version=aedt_version or pyaedt_version(config.ansys.version),
+            version=version,
             non_graphical=config.ansys.headless,
             new_desktop=new_desktop,
             close_on_exit=False,
@@ -91,6 +160,57 @@ def connect_icepak(
         )
     except Exception as error:
         raise IcepakError(f"Icepak 프로젝트 연결에 실패했습니다: {error}") from error
+
+
+def create_icepak_project(
+    config: AppConfig,
+    *,
+    output: Path,
+    design_name: str = "IcepakDesign1",
+    student_version: bool = False,
+    aedt_version: str | None = None,
+    new_desktop: bool = True,
+    factory: Callable[..., Any] | None = None,
+) -> IcepakProjectResult:
+    """generated 내부에 새 Icepak 프로젝트를 만들고 기존 파일은 보존한다."""
+    prepare_workspace(config.workspace)
+    generated_root = config.workspace.generated_dir.resolve()
+    destination = output.expanduser().resolve()
+    if destination != generated_root and generated_root not in destination.parents:
+        raise IcepakError(
+            "Icepak 새 프로젝트는 workspace/generated 안에만 생성할 수 있습니다."
+        )
+    if destination.suffix.lower() != ".aedt":
+        raise IcepakError("새 Icepak 프로젝트 확장자는 .aedt여야 합니다.")
+    if destination.exists():
+        raise IcepakError(f"기존 Icepak 프로젝트를 덮어쓸 수 없습니다: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    active_factory = factory or _import_icepak_factory()
+    version = _selected_version(
+        config,
+        student_version=student_version,
+        aedt_version=aedt_version,
+        inspect_installation=factory is None,
+    )
+    try:
+        app = active_factory(
+            project=str(destination),
+            design=design_name,
+            version=version,
+            non_graphical=config.ansys.headless,
+            new_desktop=new_desktop,
+            close_on_exit=False,
+            student_version=student_version,
+        )
+        app.save_project(str(destination))
+    except Exception as error:
+        raise IcepakError(f"Icepak 프로젝트 생성에 실패했습니다: {error}") from error
+    return IcepakProjectResult(
+        status="created",
+        project=str(destination),
+        design=str(getattr(app, "design_name", design_name)),
+        version=version,
+    )
 
 
 def icepak_status(app: Any) -> str:

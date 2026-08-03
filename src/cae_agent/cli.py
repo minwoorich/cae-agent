@@ -33,7 +33,9 @@ from cae_agent.ansys.mechanical import (
 from cae_agent.ansys.icepak import (
     IcepakError,
     connect_icepak,
+    create_icepak_project,
     icepak_status,
+    installed_aedt_versions,
     run_icepak_script,
 )
 from cae_agent.ansys.project import ProjectError, create_project
@@ -340,7 +342,6 @@ def build_parser() -> argparse.ArgumentParser:
     icepak_parser.add_argument(
         "--project",
         type=Path,
-        required=True,
         dest="project_file",
         help="연결할 기존 .aedt 또는 .aedtz 프로젝트입니다.",
     )
@@ -371,6 +372,15 @@ def build_parser() -> argparse.ArgumentParser:
         "status",
         help="프로젝트와 활성 Icepak 설계의 연결 상태를 확인합니다.",
     )
+    icepak_subparsers.add_parser(
+        "installations",
+        help="현재 PC에 설치된 AEDT 일반/Student 버전과 경로를 조회합니다.",
+    )
+    icepak_create_parser = icepak_subparsers.add_parser(
+        "create-project",
+        help="workspace/generated 안에 새 Icepak 프로젝트를 생성합니다.",
+    )
+    icepak_create_parser.add_argument("--output", type=Path, required=True)
     icepak_run_parser = icepak_subparsers.add_parser(
         "run-script",
         help="PyAEDT Icepak 객체가 주입된 환경에서 Python 스크립트를 실행합니다.",
@@ -627,15 +637,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "icepak":
         try:
             config = load_config(args.config_file)
-            app = connect_icepak(
-                config,
-                project_file=args.project_file,
-                design_name=args.design_name,
-                new_desktop=args.new_desktop,
-                student_version=args.student_version,
-                aedt_version=args.aedt_version,
-            )
+            if args.icepak_command == "installations":
+                print(json.dumps(installed_aedt_versions(), ensure_ascii=False, indent=2))
+                return 0
+            if args.icepak_command == "create-project":
+                result = create_icepak_project(
+                    config,
+                    output=args.output,
+                    design_name=args.design_name or "IcepakDesign1",
+                    new_desktop=True,
+                    student_version=args.student_version,
+                    aedt_version=args.aedt_version,
+                )
+                print(result.to_json())
+                return 0
+            if args.project_file is None:
+                raise IcepakError("status와 run-script에는 --project가 필요합니다.")
             if args.icepak_command == "status":
+                app = connect_icepak(
+                    config,
+                    project_file=args.project_file,
+                    design_name=args.design_name,
+                    new_desktop=args.new_desktop,
+                    student_version=args.student_version,
+                    aedt_version=args.aedt_version,
+                )
                 print(icepak_status(app))
                 return 0
             if args.icepak_command == "run-script":
@@ -647,7 +673,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     new_desktop=args.new_desktop,
                     student_version=args.student_version,
                     aedt_version=args.aedt_version,
-                    app=app,
                 )
                 print(result.to_json())
                 return 0
