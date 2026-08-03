@@ -81,9 +81,13 @@ def test_create_project_is_limited_to_generated_and_preserves_existing(
 
     class FakeIcepak:
         design_name = "Smoke"
+        released = False
 
         def save_project(self, path: str) -> None:
             Path(path).write_text("project", encoding="utf-8")
+
+        def release_desktop(self, **kwargs) -> None:
+            self.released = kwargs == {"close_projects": True, "close_desktop": True}
 
     result = create_icepak_project(
         config,
@@ -138,3 +142,31 @@ def test_status_and_script_execution(tmp_path: Path) -> None:
     assert result.status == "success"
     assert "'power': 25" in result.return_value
     assert result.staged_script.endswith("generated\\icepak\\icepak_fixed.py")
+
+
+def test_owned_new_desktop_is_released_after_script(tmp_path: Path) -> None:
+    config = load_config(current_directory=tmp_path)
+    project = tmp_path / "thermal.aedt"
+    project.write_text("", encoding="utf-8")
+    script = tmp_path / "run.py"
+    script.write_text("result = 'ok'\n", encoding="utf-8")
+
+    class FakeIcepak:
+        project_name = "thermal"
+        design_name = "Board"
+        released = False
+
+        def release_desktop(self, **kwargs) -> None:
+            self.released = kwargs == {"close_projects": True, "close_desktop": True}
+
+    app = FakeIcepak()
+    result = run_icepak_script(
+        config,
+        script,
+        project_file=project,
+        new_desktop=True,
+        factory=lambda **_kwargs: app,
+    )
+
+    assert result.return_value == "ok"
+    assert app.released is True

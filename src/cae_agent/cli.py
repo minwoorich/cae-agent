@@ -662,7 +662,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     student_version=args.student_version,
                     aedt_version=args.aedt_version,
                 )
-                print(icepak_status(app))
+                try:
+                    print(icepak_status(app))
+                finally:
+                    if args.new_desktop:
+                        app.release_desktop(close_projects=True, close_desktop=True)
                 return 0
             if args.icepak_command == "run-script":
                 result = run_icepak_script(

@@ -1,5 +1,8 @@
 # Icepak AI 자동화
 
+현재 로컬 실제 실행 검증 결과는 [Icepak AI 통합 검증 보고서](icepak-validation-report.ko.md)에
+정리되어 있다.
+
 CAE Agent는 PyAEDT를 통해 Ansys Electronics Desktop의 Icepak 설계에 연결한다.
 Workbench Mechanical 연결과는 별도 경로이며, 기존 `.aedt` 또는 `.aedtz`
 프로젝트를 명시해야 한다.

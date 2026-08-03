@@ -192,6 +192,7 @@ def create_icepak_project(
         aedt_version=aedt_version,
         inspect_installation=factory is None,
     )
+    app: Any | None = None
     try:
         app = active_factory(
             project=str(destination),
@@ -205,12 +206,23 @@ def create_icepak_project(
         app.save_project(str(destination))
     except Exception as error:
         raise IcepakError(f"Icepak 프로젝트 생성에 실패했습니다: {error}") from error
+    finally:
+        if app is not None and new_desktop:
+            _release_icepak(app)
     return IcepakProjectResult(
         status="created",
         project=str(destination),
         design=str(getattr(app, "design_name", design_name)),
         version=version,
     )
+
+
+def _release_icepak(app: Any) -> None:
+    """CAE Agent가 시작한 AEDT 세션을 닫아 라이선스와 프로세스를 회수한다."""
+    try:
+        app.release_desktop(close_projects=True, close_desktop=True)
+    except Exception as error:
+        raise IcepakError(f"Icepak 세션 종료에 실패했습니다: {error}") from error
 
 
 def icepak_status(app: Any) -> str:
@@ -264,6 +276,7 @@ def run_icepak_script(
     run_id = (run_id_factory or (lambda: uuid.uuid4().hex))()
     staged = stage_icepak_script(config, script_file, run_id=run_id)
     source = staged.read_text(encoding="utf-8")
+    owns_app = app is None
     active_app = app or connect_icepak(
         config,
         project_file=project_file,
@@ -280,13 +293,17 @@ def run_icepak_script(
     }
     try:
         exec(compile(source, str(staged), "exec"), namespace)
+        result = IcepakResult(
+            run_id=run_id,
+            status="success",
+            project=str(getattr(active_app, "project_name", project_file)),
+            design=str(getattr(active_app, "design_name", design_name or "")),
+            staged_script=str(staged),
+            return_value=str(namespace.get("result", "")),
+        )
     except Exception as error:
         raise IcepakError(f"Icepak 스크립트 실행에 실패했습니다: {error}") from error
-    return IcepakResult(
-        run_id=run_id,
-        status="success",
-        project=str(getattr(active_app, "project_name", project_file)),
-        design=str(getattr(active_app, "design_name", design_name or "")),
-        staged_script=str(staged),
-        return_value=str(namespace.get("result", "")),
-    )
+    finally:
+        if owns_app and new_desktop:
+            _release_icepak(active_app)
+    return result
