@@ -73,6 +73,7 @@ def connect_icepak(
     design_name: str | None = None,
     new_desktop: bool = False,
     student_version: bool = False,
+    aedt_version: str | None = None,
     factory: Callable[..., Any] | None = None,
 ) -> Any:
     """기존 Icepak 프로젝트를 열고 PyAEDT 애플리케이션 객체를 반환한다."""
@@ -82,7 +83,7 @@ def connect_icepak(
         return active_factory(
             project=str(project),
             design=design_name,
-            version=pyaedt_version(config.ansys.version),
+            version=aedt_version or pyaedt_version(config.ansys.version),
             non_graphical=config.ansys.headless,
             new_desktop=new_desktop,
             close_on_exit=False,
@@ -134,6 +135,7 @@ def run_icepak_script(
     design_name: str | None = None,
     new_desktop: bool = False,
     student_version: bool = False,
+    aedt_version: str | None = None,
     app: Any | None = None,
     factory: Callable[..., Any] | None = None,
     run_id_factory: Callable[[], str] | None = None,
@@ -148,6 +150,7 @@ def run_icepak_script(
         design_name=design_name,
         new_desktop=new_desktop,
         student_version=student_version,
+        aedt_version=aedt_version,
         factory=factory,
     )
     namespace: dict[str, Any] = {

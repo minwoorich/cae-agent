@@ -359,6 +359,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="AEDT Student 버전으로 연결합니다.",
     )
+    icepak_parser.add_argument(
+        "--aedt-version",
+        help="Icepak에 사용할 AEDT 버전입니다. 예: 2025.2",
+    )
     icepak_subparsers = icepak_parser.add_subparsers(
         dest="icepak_command",
         required=True,
@@ -629,6 +633,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 design_name=args.design_name,
                 new_desktop=args.new_desktop,
                 student_version=args.student_version,
+                aedt_version=args.aedt_version,
             )
             if args.icepak_command == "status":
                 print(icepak_status(app))
@@ -641,6 +646,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     design_name=args.design_name,
                     new_desktop=args.new_desktop,
                     student_version=args.student_version,
+                    aedt_version=args.aedt_version,
                     app=app,
                 )
                 print(result.to_json())

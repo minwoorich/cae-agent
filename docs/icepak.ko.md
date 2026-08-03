@@ -7,8 +7,12 @@ Workbench Mechanical 연결과는 별도 경로이며, 기존 `.aedt` 또는 `.a
 ## 설치
 
 ```powershell
-python -m pip install -e ".[icepak]"
+python -m venv .venv-icepak
+.\.venv-icepak\Scripts\python.exe -m pip install -e ".[icepak]"
 ```
+
+Workbench gRPC와 PyAEDT의 의존성 충돌을 피하기 위해 Icepak은 전용
+`.venv-icepak`에 설치한다.
 
 ## 상태 확인
 
@@ -19,10 +23,11 @@ cae-agent icepak --project workspace/input/thermal.aedt status
 특정 설계나 Student 버전을 사용할 때는 다음 옵션을 추가한다.
 
 ```powershell
-cae-agent icepak `
+.\.venv-icepak\Scripts\cae-agent.exe icepak `
   --project workspace/input/thermal.aedt `
   --design IcepakDesign1 `
   --student-version `
+  --aedt-version 2025.2 `
   status
 ```
 

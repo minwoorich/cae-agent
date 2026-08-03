@@ -38,6 +38,7 @@ def test_cli_exposes_icepak_commands(
     assert exc_info.value.code == 0
     output = capsys.readouterr().out
     assert "--project" in output
+    assert "--aedt-version" in output
     assert "run-script" in output
 
 

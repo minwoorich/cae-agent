@@ -39,13 +39,14 @@ def test_connect_passes_verified_project_and_options(tmp_path: Path) -> None:
         design_name="Board",
         new_desktop=True,
         student_version=True,
+        aedt_version="2025.2",
         factory=factory,
     )
 
     assert isinstance(result, FakeIcepak)
     assert received["project"] == str(project.resolve())
     assert received["design"] == "Board"
-    assert received["version"] == "2026.1"
+    assert received["version"] == "2025.2"
     assert received["new_desktop"] is True
     assert received["student_version"] is True
     assert received["close_on_exit"] is False
