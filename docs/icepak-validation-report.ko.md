@@ -1,5 +1,18 @@
 # Icepak AI 통합 검증 보고서
 
+## Native 백엔드 회귀 검증 (2026-08-03)
+
+- 정식 CLI 경로: `icepak run-script --backend native`
+- 대상: AEDT Student 2025 R2 (`2025.2.4`)
+- 컴퓨터 이름: ASCII 사전 검사 통과
+- ScriptEnv 연결: 성공, 활성 프로젝트가 없는 새 gRPC 세션 확인
+- 프로세스 회수: 실행기가 시작한 AEDT 세션 정상 종료
+- 열해석 기준: 아래 최소 TemperatureOnly 스모크 해석의 Normal Completion 결과 유지
+
+이 검증은 PyAEDT 연결 대역이 아니라 실제 설치된 AEDT 내장 CPython과
+DesktopPlugin을 사용했다. 실행 사본과 AEDT 프로젝트는 로컬
+`workspace/generated`에만 보존하며 Git에는 포함하지 않는다.
+
 검증일: 2026-08-03
 
 ## 결론

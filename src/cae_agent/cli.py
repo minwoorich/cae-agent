@@ -38,6 +38,7 @@ from cae_agent.ansys.icepak import (
     installed_aedt_versions,
     run_icepak_script,
 )
+from cae_agent.ansys.icepak_native import run_native_icepak_script
 from cae_agent.ansys.project import ProjectError, create_project
 from cae_agent.agent.repair import RepairError, run_repair_loop
 from cae_agent.ansys.spaceclaim import SpaceClaimError, run_spaceclaim_script
@@ -383,9 +384,21 @@ def build_parser() -> argparse.ArgumentParser:
     icepak_create_parser.add_argument("--output", type=Path, required=True)
     icepak_run_parser = icepak_subparsers.add_parser(
         "run-script",
-        help="PyAEDT Icepak 객체가 주입된 환경에서 Python 스크립트를 실행합니다.",
+        help="PyAEDT 또는 Native ScriptEnv에서 Python 스크립트를 실행합니다.",
     )
     icepak_run_parser.add_argument("script_file", type=Path)
+    icepak_run_parser.add_argument(
+        "--backend",
+        choices=("pyaedt", "native"),
+        default="pyaedt",
+        help="실행 백엔드입니다. 기본값: pyaedt",
+    )
+    icepak_run_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="Native ScriptEnv 실행 제한 시간(초)입니다. 기본값: 120",
+    )
 
     generate_parser = subparsers.add_parser(
         "generate",
@@ -651,8 +664,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 print(result.to_json())
                 return 0
-            if args.project_file is None:
-                raise IcepakError("status와 run-script에는 --project가 필요합니다.")
+            if args.project_file is None and (
+                args.icepak_command == "status"
+                or (args.icepak_command == "run-script" and args.backend == "pyaedt")
+            ):
+                raise IcepakError("status와 PyAEDT run-script에는 --project가 필요합니다.")
             if args.icepak_command == "status":
                 app = connect_icepak(
                     config,
@@ -669,15 +685,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                         app.release_desktop(close_projects=True, close_desktop=True)
                 return 0
             if args.icepak_command == "run-script":
-                result = run_icepak_script(
-                    config,
-                    args.script_file,
-                    project_file=args.project_file,
-                    design_name=args.design_name,
-                    new_desktop=args.new_desktop,
-                    student_version=args.student_version,
-                    aedt_version=args.aedt_version,
-                )
+                if args.backend == "native":
+                    result = run_native_icepak_script(
+                        config,
+                        args.script_file,
+                        student_version=args.student_version,
+                        aedt_version=args.aedt_version,
+                        timeout=args.timeout,
+                    )
+                else:
+                    result = run_icepak_script(
+                        config,
+                        args.script_file,
+                        project_file=args.project_file,
+                        design_name=args.design_name,
+                        new_desktop=args.new_desktop,
+                        student_version=args.student_version,
+                        aedt_version=args.aedt_version,
+                    )
                 print(result.to_json())
                 return 0
         except (ConfigError, IcepakError, OSError) as error:

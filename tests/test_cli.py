@@ -43,6 +43,13 @@ def test_cli_exposes_icepak_commands(
     assert "create-project" in output
     assert "run-script" in output
 
+    with pytest.raises(SystemExit) as run_exc:
+        main(["icepak", "run-script", "--help"])
+    assert run_exc.value.code == 0
+    run_output = capsys.readouterr().out
+    assert "--backend {pyaedt,native}" in run_output
+    assert "--timeout" in run_output
+
 
 def test_doctor_command_returns_failure_for_failed_check(
     monkeypatch: pytest.MonkeyPatch,

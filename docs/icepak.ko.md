@@ -3,9 +3,10 @@
 현재 로컬 실제 실행 검증 결과는 [Icepak AI 통합 검증 보고서](icepak-validation-report.ko.md)에
 정리되어 있다.
 
-CAE Agent는 PyAEDT를 통해 Ansys Electronics Desktop의 Icepak 설계에 연결한다.
-Workbench Mechanical 연결과는 별도 경로이며, 기존 `.aedt` 또는 `.aedtz`
-프로젝트를 명시해야 한다.
+CAE Agent는 PyAEDT와 AEDT Native ScriptEnv 두 백엔드를 제공한다. PyAEDT는
+기존 Icepak 설계 객체를 고수준 API로 제어하고, Native는 PyAEDT 세션 생성이
+로컬 보안 정책에서 멈추는 경우 설치본의 내장 CPython과 DesktopPlugin을 직접
+사용한다. 두 경로 모두 Workbench Mechanical 연결과는 별개다.
 
 ## 설치
 
@@ -66,6 +67,27 @@ cae-agent icepak `
   run-script workspace/input/set_heat_source.py
 ```
 
+### Native ScriptEnv 백엔드
+
+Native 스크립트에는 AEDT가 제공하는 `oDesktop`이 주입된다. 새 프로젝트 생성,
+기존 프로젝트 열기와 해석은 AEDT Scripting API로 명시해야 하며, 결과 요약은
+`result` 변수에 저장한다. 이 백엔드는 `--project`가 필수가 아니므로 새 프로젝트
+생성 스크립트에도 사용할 수 있다.
+
+```powershell
+.\.venv-icepak\Scripts\cae-agent.exe icepak `
+  --student-version `
+  --aedt-version 2025.2 `
+  run-script --backend native --timeout 120 workspace/input/native_probe.py
+```
+
+실행기는 설치 경로에서 `ansysedtsv.exe`, 내장 CPython과 `DesktopPlugin`을
+검증하고 localhost 임시 포트에 새 AEDT를 시작한다. 원본은 보존하며 실행 사본과
+고정 래퍼는 `workspace/generated/icepak/native/<run-id>`에 남긴다. 내장 Python의
+종료 코드뿐 아니라 `CAE_NATIVE_RESULT` 성공 마커도 확인한 뒤 자신이 시작한 AEDT
+프로세스만 종료한다. `ANSYSEM_ROOT###` 설치 환경 변수를 우선 사용하므로 Native
+실행 자체에는 PyAEDT 패키지가 필요하지 않다.
+
 ## AI 스크립트 생성
 
 ```powershell
@@ -85,4 +107,6 @@ AI 생성은 코드를 작성하고 검증된 사본으로 저장하는 단계�
 - PyAEDT와 AEDT는 실제 연결 시점에만 필요하다.
 - AI 프롬프트는 Desktop 직접 종료와 `release_desktop` 호출을 금지한다.
 - 새 AEDT 프로세스가 필요할 때만 `--new-desktop`을 사용한다.
+- Native 백엔드는 ASCII 컴퓨터 이름이 필요하며, 조건이 맞지 않으면 AEDT를 시작하기 전에 중단한다.
+- Native 스크립트에서는 `ScriptEnv.Initialize`와 `ScriptEnv.Shutdown`을 직접 호출하지 않는다.
 - 해석 실행과 기존 설계 변경은 사용자의 명시적인 승인을 받은 후 수행한다.
