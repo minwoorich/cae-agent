@@ -30,6 +30,15 @@ from cae_agent.ansys.mechanical import (
     run_mechanical_script,
     start_mechanical_session,
 )
+from cae_agent.ansys.icepak import (
+    IcepakError,
+    connect_icepak,
+    create_icepak_project,
+    icepak_status,
+    installed_aedt_versions,
+    run_icepak_script,
+)
+from cae_agent.ansys.icepak_native import run_native_icepak_script
 from cae_agent.ansys.project import ProjectError, create_project
 from cae_agent.agent.repair import RepairError, run_repair_loop
 from cae_agent.ansys.spaceclaim import SpaceClaimError, run_spaceclaim_script
@@ -321,6 +330,76 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mechanical_run_parser.add_argument("script_file", type=Path)
 
+    icepak_parser = subparsers.add_parser(
+        "icepak",
+        help="PyAEDT를 통해 Ansys Icepak 프로젝트와 스크립트를 제어합니다.",
+    )
+    icepak_parser.add_argument(
+        "--file",
+        type=Path,
+        dest="config_file",
+        help=f"사용할 TOML 설정 파일입니다. 기본값: {DEFAULT_CONFIG_NAME}",
+    )
+    icepak_parser.add_argument(
+        "--project",
+        type=Path,
+        dest="project_file",
+        help="연결할 기존 .aedt 또는 .aedtz 프로젝트입니다.",
+    )
+    icepak_parser.add_argument(
+        "--design",
+        dest="design_name",
+        help="선택할 Icepak 설계 이름입니다.",
+    )
+    icepak_parser.add_argument(
+        "--new-desktop",
+        action="store_true",
+        help="기존 AEDT 세션 대신 새 Electronics Desktop 세션을 시작합니다.",
+    )
+    icepak_parser.add_argument(
+        "--student-version",
+        action="store_true",
+        help="AEDT Student 버전으로 연결합니다.",
+    )
+    icepak_parser.add_argument(
+        "--aedt-version",
+        help="Icepak에 사용할 AEDT 버전입니다. 예: 2025.2",
+    )
+    icepak_subparsers = icepak_parser.add_subparsers(
+        dest="icepak_command",
+        required=True,
+    )
+    icepak_subparsers.add_parser(
+        "status",
+        help="프로젝트와 활성 Icepak 설계의 연결 상태를 확인합니다.",
+    )
+    icepak_subparsers.add_parser(
+        "installations",
+        help="현재 PC에 설치된 AEDT 일반/Student 버전과 경로를 조회합니다.",
+    )
+    icepak_create_parser = icepak_subparsers.add_parser(
+        "create-project",
+        help="workspace/generated 안에 새 Icepak 프로젝트를 생성합니다.",
+    )
+    icepak_create_parser.add_argument("--output", type=Path, required=True)
+    icepak_run_parser = icepak_subparsers.add_parser(
+        "run-script",
+        help="PyAEDT 또는 Native ScriptEnv에서 Python 스크립트를 실행합니다.",
+    )
+    icepak_run_parser.add_argument("script_file", type=Path)
+    icepak_run_parser.add_argument(
+        "--backend",
+        choices=("pyaedt", "native"),
+        default="pyaedt",
+        help="실행 백엔드입니다. 기본값: pyaedt",
+    )
+    icepak_run_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="Native ScriptEnv 실행 제한 시간(초)입니다. 기본값: 120",
+    )
+
     generate_parser = subparsers.add_parser(
         "generate",
         help="AI 제공자로 SpaceClaim 또는 Mechanical 스크립트를 생성합니다.",
@@ -334,7 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument(
         "--target",
         required=True,
-        choices=("spaceclaim", "mechanical"),
+        choices=("spaceclaim", "mechanical", "icepak"),
         help="생성할 스크립트의 CAE 실행 환경입니다.",
     )
     prompt_group = generate_parser.add_mutually_exclusive_group(required=True)
@@ -566,6 +645,67 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(result.to_json())
                 return 0
         except (ConfigError, MechanicalError, WorkbenchError, OSError) as error:
+            parser.error(str(error))
+
+    if args.command == "icepak":
+        try:
+            config = load_config(args.config_file)
+            if args.icepak_command == "installations":
+                print(json.dumps(installed_aedt_versions(), ensure_ascii=False, indent=2))
+                return 0
+            if args.icepak_command == "create-project":
+                result = create_icepak_project(
+                    config,
+                    output=args.output,
+                    design_name=args.design_name or "IcepakDesign1",
+                    new_desktop=True,
+                    student_version=args.student_version,
+                    aedt_version=args.aedt_version,
+                )
+                print(result.to_json())
+                return 0
+            if args.project_file is None and (
+                args.icepak_command == "status"
+                or (args.icepak_command == "run-script" and args.backend == "pyaedt")
+            ):
+                raise IcepakError("status와 PyAEDT run-script에는 --project가 필요합니다.")
+            if args.icepak_command == "status":
+                app = connect_icepak(
+                    config,
+                    project_file=args.project_file,
+                    design_name=args.design_name,
+                    new_desktop=args.new_desktop,
+                    student_version=args.student_version,
+                    aedt_version=args.aedt_version,
+                )
+                try:
+                    print(icepak_status(app))
+                finally:
+                    if args.new_desktop:
+                        app.release_desktop(close_projects=True, close_desktop=True)
+                return 0
+            if args.icepak_command == "run-script":
+                if args.backend == "native":
+                    result = run_native_icepak_script(
+                        config,
+                        args.script_file,
+                        student_version=args.student_version,
+                        aedt_version=args.aedt_version,
+                        timeout=args.timeout,
+                    )
+                else:
+                    result = run_icepak_script(
+                        config,
+                        args.script_file,
+                        project_file=args.project_file,
+                        design_name=args.design_name,
+                        new_desktop=args.new_desktop,
+                        student_version=args.student_version,
+                        aedt_version=args.aedt_version,
+                    )
+                print(result.to_json())
+                return 0
+        except (ConfigError, IcepakError, OSError) as error:
             parser.error(str(error))
 
     if args.command == "generate":

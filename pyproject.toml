@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cae-agent"
 version = "0.1.0"
-description = "AI-assisted automation for Ansys SpaceClaim and Mechanical"
+description = "AI-assisted automation for Ansys SpaceClaim, Mechanical, and Icepak"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -33,6 +33,9 @@ dev = [
 ansys = [
   "ansys-mechanical-core>=0.13.0,<0.14",
   "ansys-workbench-core>=0.14.0,<0.15",
+]
+icepak = [
+  "pyaedt>=1.3,<2",
 ]
 ui = [
   "nicegui>=3.0,<4",

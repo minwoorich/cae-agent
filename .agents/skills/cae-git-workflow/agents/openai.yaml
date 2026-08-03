@@ -1,0 +1,4 @@
+interface:
+  display_name: "CAE Git Workflow"
+  short_description: "CAE 변경을 GitHub 이슈·프로젝트·PR로 추적"
+  default_prompt: "Use $cae-git-workflow to track this CAE change with a GitHub issue, project item, commit, and PR."
